@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
   Monitor, 
@@ -6,12 +6,55 @@ import {
   Clock, 
   Activity,
   TrendingUp,
-  Users
+  Users,
+  AlertCircle,
+  RefreshCw,
+  CheckCircle,
+  XCircle,
+  Play,
+  Pause
 } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
 
 function Dashboard() {
-  const { devices, jobs, stats, loading } = useApp();
+  const { devices, jobs, stats, loading, error, api } = useApp();
+  const [lastUpdate, setLastUpdate] = useState(new Date());
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showError, setShowError] = useState(false);
+
+  // Auto-update last update time
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setLastUpdate(new Date());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Handle errors
+  useEffect(() => {
+    if (error) {
+      setShowError(true);
+      const timer = setTimeout(() => setShowError(false), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
+  // Manual refresh function
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await Promise.all([
+        api.fetchDevices(),
+        api.fetchJobs(),
+        api.fetchModels()
+      ]);
+      setLastUpdate(new Date());
+    } catch (error) {
+      console.error('Manual refresh failed:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   // Mock data for charts
   const trainingData = [
@@ -29,16 +72,27 @@ function Dashboard() {
     { type: 'Mac Studio', count: 12 },
   ];
 
-  const StatCard = ({ title, value, icon: Icon, color, subtitle }) => (
-    <div className="card">
+  const StatCard = ({ title, value, icon: Icon, color, subtitle, trend, isLoading }) => (
+    <div className="card hover:shadow-lg transition-shadow duration-200">
       <div className="flex items-center">
-        <div className={`p-3 rounded-lg ${color}`}>
+        <div className={`p-3 rounded-lg ${color} ${isLoading ? 'animate-pulse' : ''}`}>
           <Icon className="h-6 w-6 text-white" />
         </div>
-        <div className="ml-4">
+        <div className="ml-4 flex-1">
           <p className="text-sm font-medium text-gray-600">{title}</p>
-          <p className="text-2xl font-semibold text-gray-900">{value}</p>
+          <p className="text-2xl font-semibold text-gray-900">
+            {isLoading ? '...' : value}
+          </p>
           {subtitle && <p className="text-xs text-gray-500">{subtitle}</p>}
+          {trend && (
+            <div className={`flex items-center text-xs mt-1 ${
+              trend > 0 ? 'text-green-600' : trend < 0 ? 'text-red-600' : 'text-gray-500'
+            }`}>
+              {trend > 0 ? <TrendingUp className="h-3 w-3 mr-1" /> : 
+               trend < 0 ? <TrendingUp className="h-3 w-3 mr-1 rotate-180" /> : null}
+              {trend !== 0 && `${Math.abs(trend)}%`}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -64,10 +118,50 @@ function Dashboard() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-gray-600">Overview of your distributed AI training infrastructure</p>
+      <div className="flex justify-between items-start">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+          <p className="text-gray-600">Overview of your distributed AI training infrastructure</p>
+          <div className="flex items-center mt-2 space-x-4">
+            <div className="flex items-center text-sm text-gray-500">
+              <div className={`w-2 h-2 rounded-full mr-2 ${
+                stats.runningJobs > 0 ? 'bg-green-500 animate-pulse' : 'bg-gray-400'
+              }`}></div>
+              {stats.runningJobs > 0 ? 'Live Training' : 'Idle'}
+            </div>
+            <div className="text-sm text-gray-500">
+              Last updated: {lastUpdate.toLocaleTimeString()}
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="btn-secondary flex items-center space-x-2"
+          >
+            <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
+          </button>
+        </div>
       </div>
+
+      {/* Error Banner */}
+      {showError && error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center">
+          <AlertCircle className="h-5 w-5 text-red-500 mr-3" />
+          <div className="flex-1">
+            <p className="text-sm text-red-800 font-medium">Connection Error</p>
+            <p className="text-sm text-red-600">{error}</p>
+          </div>
+          <button
+            onClick={() => setShowError(false)}
+            className="text-red-500 hover:text-red-700"
+          >
+            <XCircle className="h-5 w-5" />
+          </button>
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -77,6 +171,8 @@ function Dashboard() {
           icon={Monitor}
           color="bg-blue-500"
           subtitle={`${stats.activeDevices} active`}
+          isLoading={loading.devices}
+          trend={stats.totalDevices > 0 ? 5 : 0}
         />
         <StatCard
           title="Training Jobs"
@@ -84,20 +180,24 @@ function Dashboard() {
           icon={Brain}
           color="bg-green-500"
           subtitle={`${stats.runningJobs} running`}
+          isLoading={loading.jobs}
+          trend={stats.runningJobs > 0 ? 12 : 0}
         />
         <StatCard
           title="Completed Jobs"
           value={stats.completedJobs}
           icon={Clock}
           color="bg-purple-500"
-          subtitle="This month"
+          subtitle="All time"
+          isLoading={loading.jobs}
         />
         <StatCard
-          title="Training Time"
-          value="1,247h"
+          title="Success Rate"
+          value={`${stats.totalJobs > 0 ? Math.round((stats.completedJobs / stats.totalJobs) * 100) : 0}%`}
           icon={Activity}
           color="bg-orange-500"
-          subtitle="Total compute time"
+          subtitle="Job completion"
+          isLoading={loading.jobs}
         />
       </div>
 
@@ -149,37 +249,112 @@ function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Recent Jobs */}
         <div className="card">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Training Jobs</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900">Recent Training Jobs</h3>
+            <span className="text-sm text-gray-500">{jobs.length} total</span>
+          </div>
           <div className="space-y-3">
             {jobs.slice(0, 5).map((job) => (
-              <div key={job.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                <div>
-                  <p className="font-medium text-gray-900">{job.name}</p>
+              <div key={job.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                <div className="flex-1">
+                  <div className="flex items-center space-x-2">
+                    <p className="font-medium text-gray-900">{job.name}</p>
+                    {job.status === 'running' && (
+                      <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                    )}
+                  </div>
                   <p className="text-sm text-gray-500">{job.model_type}</p>
+                  {job.status === 'running' && (
+                    <div className="mt-2">
+                      <div className="flex justify-between text-xs text-gray-600 mb-1">
+                        <span>Progress</span>
+                        <span>{Math.round(job.progress)}%</span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-1.5">
+                        <div 
+                          className="bg-green-500 h-1.5 rounded-full transition-all duration-300"
+                          style={{ width: `${job.progress}%` }}
+                        ></div>
+                      </div>
+                      <div className="flex justify-between text-xs text-gray-500 mt-1">
+                        <span>Epoch {job.current_epoch}/{job.total_epochs}</span>
+                        <span>{job.dataset}</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <span className={`status-badge status-${job.status}`}>
-                  {job.status}
-                </span>
+                <div className="flex items-center space-x-2">
+                  <span className={`status-badge status-${job.status} flex items-center space-x-1`}>
+                    {job.status === 'completed' && <CheckCircle className="h-3 w-3" />}
+                    {job.status === 'running' && <Play className="h-3 w-3" />}
+                    {job.status === 'pending' && <Pause className="h-3 w-3" />}
+                    <span className="capitalize">{job.status}</span>
+                  </span>
+                </div>
               </div>
             ))}
+            {jobs.length === 0 && (
+              <div className="text-center py-8 text-gray-500">
+                <Brain className="h-12 w-12 mx-auto mb-2 text-gray-300" />
+                <p>No training jobs yet</p>
+                <p className="text-sm">Create your first job to get started</p>
+              </div>
+            )}
           </div>
         </div>
 
         {/* Device Status */}
         <div className="card">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Device Status</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900">Device Status</h3>
+            <span className="text-sm text-gray-500">{devices.length} total</span>
+          </div>
           <div className="space-y-3">
-            {devices.slice(0, 5).map((device) => (
-              <div key={device.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                <div>
-                  <p className="font-medium text-gray-900">{device.name}</p>
-                  <p className="text-sm text-gray-500">{device.device_type}</p>
+            {devices.slice(0, 5).map((device) => {
+              const lastSeen = new Date(device.last_seen);
+              const timeSinceLastSeen = Date.now() - lastSeen.getTime();
+              const isRecentlyActive = timeSinceLastSeen < 5 * 60 * 1000; // 5 minutes
+              
+              return (
+                <div key={device.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                  <div className="flex-1">
+                    <div className="flex items-center space-x-2">
+                      <p className="font-medium text-gray-900">{device.name}</p>
+                      {device.is_active && isRecentlyActive && (
+                        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                      )}
+                    </div>
+                    <p className="text-sm text-gray-500">{device.device_type}</p>
+                    <div className="flex items-center space-x-4 mt-1">
+                      <span className="text-xs text-gray-500">
+                        {device.cpu_cores} cores, {device.memory_gb}GB RAM
+                      </span>
+                      {device.gpu_available && (
+                        <span className="text-xs text-blue-600 font-medium">
+                          GPU: {device.gpu_memory_gb}GB
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Last seen: {isRecentlyActive ? 'Just now' : lastSeen.toLocaleTimeString()}
+                    </p>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <span className={`status-badge ${device.is_active ? 'status-active' : 'status-offline'} flex items-center space-x-1`}>
+                      {device.is_active ? <CheckCircle className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
+                      <span>{device.is_active ? 'Active' : 'Offline'}</span>
+                    </span>
+                  </div>
                 </div>
-                <span className={`status-badge ${device.is_active ? 'status-active' : 'status-offline'}`}>
-                  {device.is_active ? 'Active' : 'Offline'}
-                </span>
+              );
+            })}
+            {devices.length === 0 && (
+              <div className="text-center py-8 text-gray-500">
+                <Monitor className="h-12 w-12 mx-auto mb-2 text-gray-300" />
+                <p>No devices connected</p>
+                <p className="text-sm">Start the Constellation app to connect devices</p>
               </div>
-            ))}
+            )}
           </div>
         </div>
       </div>

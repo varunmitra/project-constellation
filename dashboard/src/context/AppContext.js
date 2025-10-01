@@ -216,25 +216,59 @@ export function AppProvider({ children }) {
     }
   };
 
-  // Auto-refresh data
+  // Auto-refresh data with smart intervals
   useEffect(() => {
-    // Initial load with delay to prevent resource exhaustion
-    const initialLoad = () => {
-      api.fetchDevices();
-      setTimeout(() => api.fetchJobs(), 100);
-      setTimeout(() => api.fetchModels(), 200);
+    let refreshInterval;
+    let isActive = true;
+
+    const initialLoad = async () => {
+      try {
+        await api.fetchDevices();
+        await new Promise(resolve => setTimeout(resolve, 100));
+        await api.fetchJobs();
+        await new Promise(resolve => setTimeout(resolve, 100));
+        await api.fetchModels();
+      } catch (error) {
+        console.warn('Initial load failed:', error);
+      }
     };
     
     initialLoad();
 
-    // Set up auto-refresh with longer interval
-    const interval = setInterval(() => {
-      api.fetchDevices();
-      setTimeout(() => api.fetchJobs(), 100);
-    }, 60000); // Refresh every 60 seconds (increased from 30)
+    // Smart refresh based on activity
+    const setupRefresh = () => {
+      const hasRunningJobs = state.jobs.some(job => job.status === 'running');
+      const refreshRate = hasRunningJobs ? 10000 : 30000; // 10s if training, 30s otherwise
+      
+      if (refreshInterval) clearInterval(refreshInterval);
+      
+      refreshInterval = setInterval(async () => {
+        if (!isActive) return;
+        
+        try {
+          await api.fetchDevices();
+          await new Promise(resolve => setTimeout(resolve, 100));
+          await api.fetchJobs();
+        } catch (error) {
+          console.warn('Auto-refresh failed:', error);
+        }
+      }, refreshRate);
+    };
 
-    return () => clearInterval(interval);
-  }, []); // Removed api from dependency array
+    setupRefresh();
+
+    // Re-setup refresh when running jobs change
+    const checkInterval = setInterval(() => {
+      if (!isActive) return;
+      setupRefresh();
+    }, 5000);
+
+    return () => {
+      isActive = false;
+      if (refreshInterval) clearInterval(refreshInterval);
+      clearInterval(checkInterval);
+    };
+  }, [state.jobs.filter(job => job.status === 'running').length]); // Re-run when running jobs change
 
   const value = {
     ...state,
