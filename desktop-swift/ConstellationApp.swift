@@ -7,6 +7,7 @@
 
 import Foundation
 import AppKit
+import Metal
 
 // MARK: - Enums
 enum ConnectionStatus {
@@ -143,6 +144,29 @@ class NetworkManager: ObservableObject {
         return serverURLManager.serverURL
     }
     
+    // GPU Detection
+    func detectGPU() -> (available: Bool, cores: Int, memoryGB: Int) {
+        // Check for Metal GPU support (macOS)
+        if MTLCreateSystemDefaultDevice() != nil {
+            // Estimate GPU cores and memory based on system
+            let totalMemory = ProcessInfo.processInfo.physicalMemory
+            let memoryGB = Int(totalMemory / (1024 * 1024 * 1024))
+            
+            // Estimate GPU cores (rough approximation for Apple Silicon)
+            let cpuCores = ProcessInfo.processInfo.processorCount
+            let estimatedGPUCores = max(8, cpuCores * 2) // Conservative estimate
+            
+            // Estimate GPU memory (typically 25-50% of system memory)
+            let estimatedGPUMemory = max(4, memoryGB / 4)
+            
+            print("🎮 GPU detected: \(estimatedGPUCores) cores, \(estimatedGPUMemory)GB memory")
+            return (true, estimatedGPUCores, estimatedGPUMemory)
+        } else {
+            print("❌ No GPU detected, using CPU only")
+            return (false, 0, 0)
+        }
+    }
+    
     func updateServerURL(_ newURL: String) {
         serverURLManager.serverURL = newURL
         connectionStatus = .disconnected
@@ -169,20 +193,25 @@ class NetworkManager: ObservableObject {
     }
     
     func registerDevice() async throws -> DeviceInfo {
+        // Detect GPU availability and cores
+        let (gpuAvailable, _, gpuMemoryGB) = detectGPU()
+        
         let deviceRegistration = DeviceRegistration(
             name: Host.current().name ?? "Unknown",
             deviceType: "macbook",
             osVersion: ProcessInfo.processInfo.operatingSystemVersionString,
             cpuCores: ProcessInfo.processInfo.processorCount,
             memoryGB: Int(ProcessInfo.processInfo.physicalMemory / (1024 * 1024 * 1024)),
-            gpuAvailable: false,
-            gpuMemoryGB: 0
+            gpuAvailable: gpuAvailable,
+            gpuMemoryGB: gpuMemoryGB
         )
         
         var request = URLRequest(url: URL(string: "\(baseURL)/devices/register")!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer constellation-token", forHTTPHeaderField: "Authorization")
+        request.setValue("Constellation-Swift/1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("swift-app", forHTTPHeaderField: "X-Constellation-Client")
         
         let jsonData = try JSONEncoder().encode(deviceRegistration)
         request.httpBody = jsonData
@@ -408,6 +437,17 @@ class TrainingManager: ObservableObject {
         
         print("🚀 Starting training: \(job.name)")
         
+        // Determine compute resources based on GPU availability
+        let (gpuAvailable, gpuCores, gpuMemoryGB) = networkManager.detectGPU()
+        let cpuCores = ProcessInfo.processInfo.processorCount
+        
+        if gpuAvailable {
+            print("🎮 Using GPU: \(gpuCores) cores (50% = \(gpuCores / 2))")
+            print("💾 GPU Memory: \(gpuMemoryGB)GB")
+        } else {
+            print("🖥️ Using CPU: \(cpuCores) cores (75% = \(Int(Double(cpuCores) * 0.75)))")
+        }
+        
         // Get assignment ID from server
         guard let deviceId = deviceInfo?.id else {
             print("❌ No device ID available")
@@ -430,14 +470,24 @@ class TrainingManager: ObservableObject {
     
     private func executeTraining(job: TrainingJob, assignmentId: String, deviceId: String) async {
         do {
+            // Get compute resources
+            let (gpuAvailable, gpuCores, _) = networkManager.detectGPU()
+            let cpuCores = ProcessInfo.processInfo.processorCount
+            
+            // Calculate resource allocation
+            let computeCores = gpuAvailable ? gpuCores / 2 : Int(Double(cpuCores) * 0.75)
+            let computeType = gpuAvailable ? "GPU" : "CPU"
+            
+            print("🔧 Allocated \(computeCores) \(computeType) cores for training")
+            
             // Execute training based on job type
             switch job.modelType {
             case "text_classification":
-                await executeTextClassificationTraining(job: job, assignmentId: assignmentId, deviceId: deviceId)
+                await executeTextClassificationTraining(job: job, assignmentId: assignmentId, deviceId: deviceId, cores: computeCores, useGPU: gpuAvailable)
             case "image_classification":
-                await executeImageClassificationTraining(job: job, assignmentId: assignmentId, deviceId: deviceId)
+                await executeImageClassificationTraining(job: job, assignmentId: assignmentId, deviceId: deviceId, cores: computeCores, useGPU: gpuAvailable)
             default:
-                await executeGenericTraining(job: job, assignmentId: assignmentId, deviceId: deviceId)
+                await executeGenericTraining(job: job, assignmentId: assignmentId, deviceId: deviceId, cores: computeCores, useGPU: gpuAvailable)
             }
         } catch {
             print("❌ Training failed: \(error)")
@@ -445,10 +495,14 @@ class TrainingManager: ObservableObject {
         }
     }
     
-    private func executeTextClassificationTraining(job: TrainingJob, assignmentId: String, deviceId: String) async {
+    private func executeTextClassificationTraining(job: TrainingJob, assignmentId: String, deviceId: String, cores: Int, useGPU: Bool) async {
         print("📝 Executing text classification training for: \(job.name)")
+        print("🔧 Using \(cores) \(useGPU ? "GPU" : "CPU") cores")
         
-        // Simulate more realistic training with variable timing
+        // Simulate more realistic training with variable timing based on compute resources
+        let baseTimePerEpoch = useGPU ? 2.0 : 5.0 // GPU is faster
+        let _ = baseTimePerEpoch * (1.0 - Double(cores) / 100.0) // More cores = faster
+        
         for epoch in 1...job.totalEpochs {
             guard isTraining && appStatus == .running else { break }
             
@@ -490,10 +544,14 @@ class TrainingManager: ObservableObject {
         }
     }
     
-    private func executeImageClassificationTraining(job: TrainingJob, assignmentId: String, deviceId: String) async {
+    private func executeImageClassificationTraining(job: TrainingJob, assignmentId: String, deviceId: String, cores: Int, useGPU: Bool) async {
         print("🖼️ Executing image classification training for: \(job.name)")
+        print("🔧 Using \(cores) \(useGPU ? "GPU" : "CPU") cores")
         
-        // Simulate image training with longer processing times
+        // Simulate image training with longer processing times based on compute resources
+        let baseTimePerEpoch = useGPU ? 3.0 : 8.0 // Image training benefits more from GPU
+        let _ = baseTimePerEpoch * (1.0 - Double(cores) / 100.0)
+        
         for epoch in 1...job.totalEpochs {
             guard isTraining && appStatus == .running else { break }
             
@@ -532,10 +590,14 @@ class TrainingManager: ObservableObject {
         }
     }
     
-    private func executeGenericTraining(job: TrainingJob, assignmentId: String, deviceId: String) async {
+    private func executeGenericTraining(job: TrainingJob, assignmentId: String, deviceId: String, cores: Int, useGPU: Bool) async {
         print("🔧 Executing generic training for: \(job.name)")
+        print("🔧 Using \(cores) \(useGPU ? "GPU" : "CPU") cores")
         
-        // Generic training simulation
+        // Generic training simulation based on compute resources
+        let baseTimePerEpoch = useGPU ? 2.5 : 6.0
+        let _ = baseTimePerEpoch * (1.0 - Double(cores) / 100.0)
+        
         for epoch in 1...job.totalEpochs {
             guard isTraining && appStatus == .running else { break }
             
@@ -568,20 +630,29 @@ class TrainingManager: ObservableObject {
     }
     
     private func calculateTrainingTime(epoch: Int, totalEpochs: Int, modelType: String) -> Double {
-        // Simulate realistic training times
+        // Get current compute resources
+        let (gpuAvailable, gpuCores, _) = networkManager.detectGPU()
+        let cpuCores = ProcessInfo.processInfo.processorCount
+        let computeCores = gpuAvailable ? gpuCores / 2 : Int(Double(cpuCores) * 0.75)
+        
+        // Simulate realistic training times based on compute resources
         let baseTime: Double
         switch modelType {
         case "text_classification":
-            baseTime = 1.5 // 1.5 seconds per epoch
+            baseTime = gpuAvailable ? 1.0 : 2.5 // GPU is faster
         case "image_classification":
-            baseTime = 3.0 // 3 seconds per epoch
+            baseTime = gpuAvailable ? 2.0 : 5.0 // Image training benefits more from GPU
         default:
-            baseTime = 2.0 // 2 seconds per epoch
+            baseTime = gpuAvailable ? 1.5 : 3.0
         }
+        
+        // Adjust based on available cores (more cores = faster)
+        let coreMultiplier = 1.0 - (Double(computeCores) / 100.0)
+        let adjustedTime = baseTime * max(0.3, coreMultiplier) // Minimum 30% of base time
         
         // Add some variation based on epoch (later epochs might be faster due to optimization)
         let variation = 1.0 + (Double(epoch) / Double(totalEpochs)) * 0.3
-        return baseTime * variation
+        return adjustedTime * variation
     }
     
     private func simulateAccuracy(epoch: Int, totalEpochs: Int) -> Double {
@@ -1034,6 +1105,26 @@ class MenuBarApp: NSObject {
             let deviceItem = NSMenuItem(title: "Device: \(device.name)", action: nil, keyEquivalent: "")
             deviceItem.isEnabled = false
             menu.addItem(deviceItem)
+            
+            // Show compute resources
+            let (gpuAvailable, gpuCores, _) = networkManager.detectGPU()
+            let cpuCores = ProcessInfo.processInfo.processorCount
+            
+            if gpuAvailable {
+                let allocatedCores = gpuCores / 2
+                let computeItem = NSMenuItem(title: "Compute: \(allocatedCores) GPU cores (50% of \(gpuCores))", action: nil, keyEquivalent: "")
+                computeItem.isEnabled = false
+                menu.addItem(computeItem)
+                
+                let memoryItem = NSMenuItem(title: "GPU Memory: \(gpuMemoryGB)GB", action: nil, keyEquivalent: "")
+                memoryItem.isEnabled = false
+                menu.addItem(memoryItem)
+            } else {
+                let allocatedCores = Int(Double(cpuCores) * 0.75)
+                let computeItem = NSMenuItem(title: "Compute: \(allocatedCores) CPU cores (75% of \(cpuCores))", action: nil, keyEquivalent: "")
+                computeItem.isEnabled = false
+                menu.addItem(computeItem)
+            }
         }
         
         menu.addItem(NSMenuItem.separator())

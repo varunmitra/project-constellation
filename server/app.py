@@ -3,7 +3,7 @@ Central Server for Project Constellation
 Handles model distribution, device coordination, and training job management
 """
 
-from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, Float, Text
@@ -170,7 +170,25 @@ async def health_check():
 
 # Device Management
 @app.post("/devices/register", response_model=DeviceResponse)
-async def register_device(device: DeviceCreate, db: Session = Depends(get_db)):
+async def register_device(device: DeviceCreate, request: Request, db: Session = Depends(get_db)):
+    # Validate that only Swift apps can register as devices
+    user_agent = request.headers.get("user-agent", "").lower()
+    constellation_header = request.headers.get("x-constellation-client", "").lower()
+    
+    # Check if this is a legitimate Swift app registration
+    is_swift_app = (
+        "constellation" in user_agent or 
+        "swift" in user_agent or
+        constellation_header == "swift-app" or
+        constellation_header == "constellation-swift"
+    )
+    
+    if not is_swift_app:
+        raise HTTPException(
+            status_code=403, 
+            detail="Only Swift Constellation apps can register as devices. Training engines should not register as devices."
+        )
+    
     # Check if device already exists by name and device_type
     existing_device = db.query(Device).filter(
         Device.name == device.name,
@@ -199,17 +217,21 @@ async def register_device(device: DeviceCreate, db: Session = Depends(get_db)):
 
 @app.get("/devices", response_model=List[DeviceResponse])
 async def list_devices(db: Session = Depends(get_db)):
+    # Cleanup inactive devices first
+    cleanup_inactive_devices(db)
     devices = db.query(Device).filter(Device.is_active == True).all()
     return devices
 
 @app.post("/devices/cleanup")
-async def cleanup_duplicate_devices(db: Session = Depends(get_db)):
-    """Remove duplicate devices, keeping the most recent one for each name+type combination"""
-    # Get all devices grouped by name and device_type
-    devices = db.query(Device).all()
+async def cleanup_devices(db: Session = Depends(get_db)):
+    """Clean up inactive and duplicate devices"""
+    # First, mark inactive devices
+    inactive_count = cleanup_inactive_devices(db)
     
-    # Group by name and device_type
+    # Then remove duplicates
+    devices = db.query(Device).all()
     device_groups = {}
+    
     for device in devices:
         key = (device.name, device.device_type)
         if key not in device_groups:
@@ -228,7 +250,11 @@ async def cleanup_duplicate_devices(db: Session = Depends(get_db)):
                 removed_count += 1
     
     db.commit()
-    return {"status": "cleanup completed", "removed_devices": removed_count}
+    return {
+        "message": f"Cleaned up {inactive_count} inactive devices and {removed_count} duplicate devices",
+        "inactive_cleaned": inactive_count,
+        "duplicates_removed": removed_count
+    }
 
 @app.get("/devices/{device_id}", response_model=DeviceResponse)
 async def get_device(device_id: str, db: Session = Depends(get_db)):
@@ -236,6 +262,21 @@ async def get_device(device_id: str, db: Session = Depends(get_db)):
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
     return device
+
+def cleanup_inactive_devices(db: Session):
+    """Mark devices as inactive if they haven't been seen for more than 5 minutes"""
+    cutoff_time = datetime.utcnow() - timedelta(minutes=5)
+    inactive_devices = db.query(Device).filter(
+        Device.last_seen < cutoff_time,
+        Device.is_active == True
+    ).all()
+    
+    for device in inactive_devices:
+        device.is_active = False
+        print(f"🔌 Marked device as inactive: {device.name} (last seen: {device.last_seen})")
+    
+    db.commit()
+    return len(inactive_devices)
 
 @app.post("/devices/{device_id}/heartbeat")
 async def device_heartbeat(device_id: str, db: Session = Depends(get_db)):
@@ -246,6 +287,10 @@ async def device_heartbeat(device_id: str, db: Session = Depends(get_db)):
     device.last_seen = datetime.utcnow()
     device.is_active = True
     db.commit()
+    
+    # Cleanup inactive devices
+    cleanup_inactive_devices(db)
+    
     return {"status": "heartbeat received"}
 
 # Training Job Management

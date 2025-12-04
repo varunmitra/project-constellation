@@ -213,6 +213,19 @@ export function AppProvider({ children }) {
     // Update job
     updateJob: (jobId, updates) => {
       dispatch({ type: ActionTypes.UPDATE_JOB, payload: { id: jobId, ...updates } });
+    },
+
+    // Cleanup devices
+    cleanupDevices: async () => {
+      try {
+        const response = await axios.post('/devices/cleanup');
+        // Refresh devices after cleanup
+        await api.fetchDevices();
+        return response.data;
+      } catch (error) {
+        dispatch({ type: ActionTypes.SET_ERROR, payload: error.message });
+        throw error;
+      }
     }
   };
 

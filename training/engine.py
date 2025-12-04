@@ -81,7 +81,11 @@ class ConstellationTrainer:
             return False
     
     def send_heartbeat(self) -> bool:
-        """Send heartbeat to server"""
+        """Send heartbeat to server (only works if device_id exists)"""
+        if not self.device_id:
+            logger.debug("No device ID - skipping heartbeat (background service mode)")
+            return True
+            
         try:
             response = requests.post(
                 f"{self.server_url}/devices/{self.device_id}/heartbeat",
@@ -94,12 +98,37 @@ class ConstellationTrainer:
             return False
     
     def get_next_job(self) -> Optional[Dict[str, Any]]:
-        """Get the next training job from the server"""
+        """Get the next training job from the server (background service mode)"""
         try:
-            response = requests.get(
-                f"{self.server_url}/devices/{self.device_id}/next-job",
-                headers={"Authorization": "Bearer constellation-token"}
-            )
+            if self.device_id:
+                # Swift app mode - use device-specific endpoint
+                response = requests.get(
+                    f"{self.server_url}/devices/{self.device_id}/next-job",
+                    headers={"Authorization": "Bearer constellation-token"}
+                )
+            else:
+                # Background service mode - get any pending job
+                response = requests.get(
+                    f"{self.server_url}/jobs",
+                    headers={"Authorization": "Bearer constellation-token"}
+                )
+                response.raise_for_status()
+                jobs = response.json()
+                
+                # Find the first pending job
+                pending_jobs = [job for job in jobs if job.get("status") == "pending"]
+                if pending_jobs:
+                    job = pending_jobs[0]
+                    # Update job status to running
+                    update_response = requests.put(
+                        f"{self.server_url}/jobs/{job['id']}",
+                        json={"status": "running", "started_at": datetime.utcnow().isoformat()},
+                        headers={"Authorization": "Bearer constellation-token"}
+                    )
+                    if update_response.status_code == 200:
+                        return {"job": job, "assignment_id": f"service-{job['id']}"}
+                return None
+            
             response.raise_for_status()
             data = response.json()
             
@@ -343,7 +372,7 @@ class ConstellationTrainer:
                         logger.warning(f"Failed to install {req}: {e}")
             
             # Run the AG News trainer
-            trainer_script = "ag_news_trainer.py"
+            trainer_script = os.path.join(os.path.dirname(__file__), "ag_news_trainer.py")
             if os.path.exists(trainer_script):
                 logger.info("Running AG News trainer...")
                 
@@ -432,16 +461,19 @@ class ConstellationTrainer:
             return False
     
     def run_training_loop(self, check_interval: int = 30):
-        """Main training loop - checks for jobs periodically"""
-        logger.info("Starting training loop")
+        """Main training loop - checks for jobs periodically (background service mode)"""
+        logger.info("Starting training loop (background service mode)")
         
         while True:
             try:
-                # Send heartbeat
-                self.send_heartbeat()
+                # Only send heartbeat if we have a device ID (Swift app mode)
+                if self.device_id:
+                    self.send_heartbeat()
+                # Background service mode - no heartbeat needed, skip entirely
                 
-                # Check for new jobs
+                # Check for new jobs (works without device registration)
                 job_data = self.get_next_job()
+                logger.info(f"Checked for jobs, found: {job_data is not None}")
                 
                 if job_data and job_data.get("job"):
                     job = job_data["job"]
@@ -485,13 +517,13 @@ def get_device_info() -> Dict[str, Any]:
     }
 
 if __name__ == "__main__":
-    # Example usage
-    device_info = get_device_info()
-    trainer = ConstellationTrainer("demo-device")
+    # Training engine runs as background service - no device registration
+    logger.info("🚀 Starting Constellation Training Engine (Background Service)")
+    logger.info("📝 Note: This service processes jobs but does not register as a device")
+    logger.info("🔗 Only Swift apps should register as devices for decentralized training")
     
-    # Register device
-    if trainer.register_device(device_info):
-        # Start training loop
-        trainer.run_training_loop()
-    else:
-        logger.error("Failed to register device")
+    # Create trainer without device registration
+    trainer = ConstellationTrainer("training-service")
+    
+    # Start training loop directly (no device registration)
+    trainer.run_training_loop()

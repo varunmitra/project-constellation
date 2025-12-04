@@ -21,6 +21,7 @@ function Dashboard() {
   const [lastUpdate, setLastUpdate] = useState(new Date());
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showError, setShowError] = useState(false);
+  const [isCleaningUp, setIsCleaningUp] = useState(false);
 
   // Auto-update last update time
   useEffect(() => {
@@ -53,6 +54,20 @@ function Dashboard() {
       console.error('Manual refresh failed:', error);
     } finally {
       setIsRefreshing(false);
+    }
+  };
+
+  const handleCleanup = async () => {
+    setIsCleaningUp(true);
+    try {
+      const result = await api.cleanupDevices();
+      setLastUpdate(new Date());
+      console.log('Cleanup result:', result);
+    } catch (error) {
+      setShowError(true);
+      console.error('Cleanup failed:', error);
+    } finally {
+      setIsCleaningUp(false);
     }
   };
 
@@ -135,6 +150,14 @@ function Dashboard() {
           </div>
         </div>
         <div className="flex items-center space-x-2">
+          <button
+            onClick={handleCleanup}
+            disabled={isCleaningUp}
+            className="btn-secondary flex items-center space-x-2"
+          >
+            <RefreshCw className={`h-4 w-4 ${isCleaningUp ? 'animate-spin' : ''}`} />
+            <span>{isCleaningUp ? 'Cleaning...' : 'Cleanup Devices'}</span>
+          </button>
           <button
             onClick={handleRefresh}
             disabled={isRefreshing}
@@ -306,22 +329,37 @@ function Dashboard() {
         {/* Device Status */}
         <div className="card">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">Device Status</h3>
-            <span className="text-sm text-gray-500">{devices.length} total</span>
+            <h3 className="text-lg font-semibold text-gray-900">Active Devices</h3>
+            <div className="flex items-center space-x-2">
+              <span className="text-sm text-gray-500">{devices.length} active</span>
+              <button
+                onClick={handleCleanup}
+                disabled={isCleaningUp}
+                className="text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50"
+              >
+                {isCleaningUp ? 'Cleaning...' : 'Cleanup'}
+              </button>
+            </div>
           </div>
           <div className="space-y-3">
             {devices.slice(0, 5).map((device) => {
               const lastSeen = new Date(device.last_seen);
               const timeSinceLastSeen = Date.now() - lastSeen.getTime();
               const isRecentlyActive = timeSinceLastSeen < 5 * 60 * 1000; // 5 minutes
+              const isStale = timeSinceLastSeen > 10 * 60 * 1000; // 10 minutes
               
               return (
-                <div key={device.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                <div key={device.id} className={`flex items-center justify-between p-3 rounded-lg hover:bg-gray-100 transition-colors ${
+                  isStale ? 'bg-yellow-50 border border-yellow-200' : 'bg-gray-50'
+                }`}>
                   <div className="flex-1">
                     <div className="flex items-center space-x-2">
                       <p className="font-medium text-gray-900">{device.name}</p>
                       {device.is_active && isRecentlyActive && (
                         <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                      )}
+                      {isStale && (
+                        <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
                       )}
                     </div>
                     <p className="text-sm text-gray-500">{device.device_type}</p>
@@ -335,14 +373,26 @@ function Dashboard() {
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-gray-400 mt-1">
+                    <p className={`text-xs mt-1 ${
+                      isRecentlyActive ? 'text-green-600' : 
+                      isStale ? 'text-yellow-600' : 'text-gray-400'
+                    }`}>
                       Last seen: {isRecentlyActive ? 'Just now' : lastSeen.toLocaleTimeString()}
+                      {isStale && ' (Stale)'}
                     </p>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <span className={`status-badge ${device.is_active ? 'status-active' : 'status-offline'} flex items-center space-x-1`}>
-                      {device.is_active ? <CheckCircle className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
-                      <span>{device.is_active ? 'Active' : 'Offline'}</span>
+                    <span className={`status-badge ${
+                      device.is_active && isRecentlyActive ? 'status-active' : 
+                      device.is_active && isStale ? 'status-idle' : 'status-offline'
+                    } flex items-center space-x-1`}>
+                      {device.is_active && isRecentlyActive ? <CheckCircle className="h-3 w-3" /> : 
+                       device.is_active && isStale ? <AlertCircle className="h-3 w-3" /> : 
+                       <XCircle className="h-3 w-3" />}
+                      <span>
+                        {device.is_active && isRecentlyActive ? 'Active' : 
+                         device.is_active && isStale ? 'Stale' : 'Offline'}
+                      </span>
                     </span>
                   </div>
                 </div>
@@ -351,7 +401,7 @@ function Dashboard() {
             {devices.length === 0 && (
               <div className="text-center py-8 text-gray-500">
                 <Monitor className="h-12 w-12 mx-auto mb-2 text-gray-300" />
-                <p>No devices connected</p>
+                <p>No active devices</p>
                 <p className="text-sm">Start the Constellation app to connect devices</p>
               </div>
             )}
