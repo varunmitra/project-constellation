@@ -1,6 +1,6 @@
 # Project Constellation
 
-A decentralized AI training infrastructure that leverages idle employee devices for distributed machine learning.
+**Constellation: vmitra's Garage Week 2025 project** - A decentralized AI training infrastructure that leverages idle employee workstations for distributed ML training through federated learning, reducing cloud costs and democratizing compute access.
 
 ## 🚀 Features
 
