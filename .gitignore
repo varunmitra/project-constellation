@@ -109,6 +109,9 @@ DerivedData/
 temp/
 tmp/
 
+# Documentation files (exclude to avoid triggering unnecessary deployments)
+DEPLOYMENT_*.md
+
 # OS generated files
 Thumbs.db
 ehthumbs.db
