@@ -25,8 +25,9 @@ services:
   # React Dashboard (Static Site)
   - type: static
     name: constellation-dashboard
-    buildCommand: cd dashboard && npm install && npm run build
-    publishPath: dashboard/build
+    rootDir: dashboard  # Set root directory to dashboard to avoid Python auto-detection
+    buildCommand: npm install && npm run build
+    publishPath: build
     pullRequestPreviewsEnabled: false
     envVars:
       - key: REACT_APP_API_URL

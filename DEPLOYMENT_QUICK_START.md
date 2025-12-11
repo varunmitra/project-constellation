@@ -69,21 +69,53 @@
 9. Wait for build to complete (~5-10 minutes)
 
 ### Step 5: Deploy Dashboard (Static Site)
-1. In Render dashboard, click **"New +"** → **"Static Site"**
+
+**⚠️ IMPORTANT: Make sure you select "Static Site" NOT "Web Service"!**
+
+1. In Render dashboard, click **"New +"** → **"Static Site"** (NOT "Web Service")
+   - If you see "Web Service" selected, cancel and start over
+   - The page title should say "Create a new Static Site"
+
 2. Connect your GitHub repository
-3. Configure:
+   - Click **"Connect GitHub"** if needed
+   - Select `varunmitra/project-constellation`
+   - Select branch: `main`
+
+3. Configure settings:
    - **Name**: `constellation-dashboard`
-   - **Build Command**: `cd dashboard && npm install && npm run build`
-   - **Publish Directory**: `dashboard/build`
-   - **Environment Variable**: 
-     - `REACT_APP_API_URL`: Your web service URL (e.g., `https://constellation-server.onrender.com`)
-4. Click **"Create Static Site"**
-5. Wait for build (~3-5 minutes)
+   - **Branch**: `main`
+   - **Root Directory**: `dashboard` ⚠️ **CRITICAL**: Set this to `dashboard` to avoid Python auto-detection!
+     - This tells Render to use the `dashboard/` folder as the root
+     - Render won't see `requirements.txt` in the parent directory
+   - **Build Command**: `npm install && npm run build`
+     - ⚠️ Should use `npm`, NOT `pip` or Python commands
+     - Note: No `cd dashboard` needed since Root Directory is already `dashboard`
+   - **Publish Directory**: `build`
+     - ⚠️ Should point to React build output (relative to Root Directory)
+     - Since Root Directory is `dashboard`, use `build` not `dashboard/build`
+
+4. Add Environment Variable:
+   - Click **"Add Environment Variable"**
+   - **Key**: `REACT_APP_API_URL`
+   - **Value**: Your web service URL (e.g., `https://project-constellation.onrender.com`)
+   - ⚠️ Use `https://` and your actual service name
+
+5. **Verify Before Creating:**
+   - ✅ Service type shows "Static Site" (not "Web Service")
+   - ✅ Build Command uses `npm` (not `pip` or Python)
+   - ✅ Publish Directory is `dashboard/build` (not Python paths)
+   - ✅ No Python/requirements.txt references
+
+6. Click **"Create Static Site"**
+7. Wait for build (~3-5 minutes)
+   - Should see npm installing packages, NOT pip/Python
 
 ### Step 6: Verify Deployment
 1. **Test Server**:
    - Visit: `https://constellation-server.onrender.com/health`
    - Should return: `{"status": "healthy", "timestamp": "..."}`
+   - Visit: `https://constellation-server.onrender.com/` 
+   - Should return: `{"message": "Project Constellation Server", "version": "1.0.0"}`
 
 2. **Test Dashboard**:
    - Visit your static site URL
@@ -95,8 +127,537 @@
 
 ### Step 7: Update Dashboard API URL
 1. Go to your Static Site settings in Render
-2. Update `REACT_APP_API_URL` environment variable
+2. Update `REACT_APP_API_URL` environment variable to your web service URL
 3. Redeploy the static site
+
+---
+
+## 🎯 What Happens After Deployment
+
+### Immediate Next Steps
+
+1. **Verify Services Are Running**
+   - Check Render dashboard - all services should show "Live" status
+   - Web service URL: `https://project-constellation.onrender.com` (or your custom name)
+   - Dashboard URL: `https://constellation-dashboard.onrender.com` (or your custom name)
+
+2. **Test Core Functionality**
+   ```bash
+   # Health check
+   curl https://project-constellation.onrender.com/health
+   
+   # List devices (should be empty initially)
+   curl https://project-constellation.onrender.com/devices
+   
+   # List jobs (should be empty initially)
+   curl https://project-constellation.onrender.com/jobs
+   
+   # List models
+   curl https://project-constellation.onrender.com/models
+   ```
+
+3. **Access the Dashboard**
+   - **If dashboard is deployed**: Open your dashboard URL in a browser
+     - URL format: `https://constellation-dashboard.onrender.com` (or your custom name)
+     - Find the URL in Render dashboard → Static Sites → constellation-dashboard
+   - **If dashboard is NOT deployed yet**: See "Deploying the Dashboard" section below
+   - You should see the React interface with:
+     - Devices page (empty initially)
+     - Jobs page (empty initially)
+     - Models page
+     - Settings page
+
+---
+
+## 🖥️ Accessing the Dashboard
+
+### Option 1: Dashboard Already Deployed on Render
+
+If you've already deployed the dashboard as a Static Site:
+
+1. **Find Your Dashboard URL**
+   - Go to [Render Dashboard](https://dashboard.render.com)
+   - Click on **"Static Sites"** in the left sidebar
+   - Find your `constellation-dashboard` service
+   - The URL will be displayed (e.g., `https://constellation-dashboard.onrender.com`)
+
+2. **Open in Browser**
+   - Click the URL or copy-paste it into your browser
+   - The dashboard should load automatically
+
+3. **Verify It's Working**
+   - You should see the Constellation dashboard interface
+   - Check browser console (F12) for any errors
+   - If you see "Cannot connect to API", see troubleshooting below
+
+### Option 2: Deploy Dashboard Now (If Not Deployed)
+
+If you haven't deployed the dashboard yet:
+
+1. **Go to Render Dashboard**
+   - Visit [dashboard.render.com](https://dashboard.render.com)
+   - Make sure you're logged in
+
+2. **Create Static Site**
+   - Click **"New +"** button (top right)
+   - Select **"Static Site"**
+
+3. **Connect Repository**
+   - Click **"Connect GitHub"** if needed
+   - Select `varunmitra/project-constellation` repository
+   - Click **"Connect"**
+
+4. **Configure Build Settings**
+   - **Name**: `constellation-dashboard`
+   - **Branch**: `main`
+   - **Root Directory**: Leave empty (or set to `.`)
+   - **Build Command**: `cd dashboard && npm install && npm run build`
+   - **Publish Directory**: `dashboard/build`
+
+5. **Set Environment Variable**
+   - Scroll to **"Environment Variables"** section
+   - Click **"Add Environment Variable"**
+   - **Key**: `REACT_APP_API_URL`
+   - **Value**: Your web service URL (e.g., `https://project-constellation.onrender.com`)
+   - **Important**: Use `https://` and include your actual service name
+
+6. **Create Static Site**
+   - Click **"Create Static Site"** button
+   - Wait for build to complete (~3-5 minutes)
+
+7. **Access Dashboard**
+   - Once build completes, Render will show your dashboard URL
+   - Click the URL or copy it
+   - Open in browser
+
+### Option 3: Run Dashboard Locally (Development)
+
+For local development/testing:
+
+1. **Navigate to Dashboard Directory**
+   ```bash
+   cd dashboard
+   ```
+
+2. **Install Dependencies** (first time only)
+   ```bash
+   npm install
+   ```
+
+3. **Set API URL**
+   ```bash
+   # For local development (pointing to local server)
+   export REACT_APP_API_URL=http://localhost:8000
+   
+   # OR for testing with Render deployment
+   export REACT_APP_API_URL=https://project-constellation.onrender.com
+   ```
+
+4. **Start Development Server**
+   ```bash
+   npm start
+   ```
+
+5. **Open Dashboard**
+   - Browser should automatically open to `http://localhost:3000`
+   - Or manually visit: `http://localhost:3000`
+
+### Dashboard Features
+
+Once the dashboard loads, you'll see:
+
+1. **Devices Page**
+   - Shows all registered devices (Swift apps, etc.)
+   - Device status, specs, last seen time
+   - Currently empty until devices connect
+
+2. **Jobs Page**
+   - Lists all training jobs
+   - Job status, progress, assigned devices
+   - Create new jobs from here
+
+3. **Models Page**
+   - Browse available models
+   - Download models
+   - Upload new models
+
+4. **Settings Page**
+   - Configure dashboard settings
+   - API connection settings
+
+### Troubleshooting Dashboard Access
+
+**Dashboard Shows "Cannot Connect to API":**
+- ✅ Check `REACT_APP_API_URL` environment variable is set correctly
+- ✅ Verify web service is running: `curl https://project-constellation.onrender.com/health`
+- ✅ Ensure URL uses `https://` not `http://`
+- ✅ Check CORS settings in server (`ALLOWED_ORIGINS` should include dashboard URL)
+- ✅ Redeploy dashboard after changing environment variables
+
+**Dashboard URL Shows 404 or "Not Found":**
+- ✅ Verify static site is deployed and shows "Live" status
+- ✅ Check build completed successfully (check Render logs)
+- ✅ Ensure `publishPath` is set to `dashboard/build`
+
+**Dashboard Loads But Shows Empty/No Data:**
+- ✅ This is normal if no devices/jobs exist yet
+- ✅ Connect a Swift app to register a device
+- ✅ Create a training job to see it appear
+- ✅ Check browser console (F12) for API errors
+
+**Build Fails:**
+
+**Error: "Installing Poetry" or "Could not find torch==2.1.0" (Python packages being installed)**
+- ❌ **Problem**: Render is detecting `requirements.txt` in root and treating your Static Site as a Python service
+- ✅ **Solution**: 
+  1. Delete the incorrectly created service
+  2. Make sure you select **"Static Site"** not **"Web Service"**
+  3. **CRITICAL**: Set **Root Directory** to `dashboard` (not empty!)
+     - This prevents Render from seeing `requirements.txt` in the root
+  4. Set **Build Command** to: `npm install && npm run build` (no `cd dashboard` needed)
+  5. Set **Publish Directory** to: `build` (relative to Root Directory)
+  6. Verify service type shows "Static Site" not "Web Service"
+
+**Other Build Issues:**
+- ✅ Check build logs in Render dashboard
+- ✅ Verify `package.json` exists in `dashboard/` directory
+- ✅ Ensure Node.js version is compatible (check `package.json` for engines)
+- ✅ Check for npm dependency errors in logs
+- ✅ Verify you're creating a **Static Site**, not a **Web Service**
+
+**Dashboard URL Not Showing:**
+- ✅ Go to Render dashboard → Static Sites
+- ✅ Find your `constellation-dashboard` service
+- ✅ URL is displayed at the top of the service page
+- ✅ If not visible, service may still be building
+
+### Quick Access Checklist
+
+- [ ] Dashboard deployed as Static Site on Render
+- [ ] `REACT_APP_API_URL` environment variable set to web service URL
+- [ ] Web service is running and accessible
+- [ ] Dashboard URL obtained from Render dashboard
+- [ ] Dashboard opens in browser without errors
+- [ ] Browser console shows no API connection errors
+
+### Using Your Deployed System
+
+#### 1. **Register Devices** (via Swift App or API)
+   ```bash
+   # Register a device via API
+   curl -X POST https://project-constellation.onrender.com/devices/register \
+     -H "Content-Type: application/json" \
+     -H "x-constellation-client: swift-app" \
+     -d '{
+       "name": "My MacBook",
+       "device_type": "macbook",
+       "os_version": "14.0",
+       "cpu_cores": 8,
+       "memory_gb": 16,
+       "gpu_available": true,
+       "gpu_memory_gb": 8
+     }'
+   ```
+
+#### 2. **Create Training Jobs**
+   ```bash
+   # Create a training job
+   curl -X POST https://project-constellation.onrender.com/jobs \
+     -H "Content-Type: application/json" \
+     -d '{
+       "name": "Sentiment Analysis Training",
+       "model_type": "nlp",
+       "model_name": "bert-base",
+       "dataset": "imdb",
+       "total_epochs": 10,
+       "config": "{\"batch_size\": 32, \"learning_rate\": 0.001}"
+     }'
+   ```
+
+#### 3. **Monitor Progress**
+   - Use the dashboard to view:
+     - Device status and activity
+     - Training job progress
+     - Model repository
+   - Or use WebSocket for real-time updates: `wss://project-constellation.onrender.com/ws`
+
+### Available API Endpoints
+
+**Health & Info:**
+- `GET /` - Server info
+- `GET /health` - Health check
+
+**Devices:**
+- `POST /devices/register` - Register a new device
+- `GET /devices` - List all devices
+- `GET /devices/{device_id}` - Get device details
+- `POST /devices/{device_id}/heartbeat` - Update device heartbeat
+- `GET /devices/{device_id}/next-job` - Get next job for device
+
+**Training Jobs:**
+- `POST /jobs` - Create a training job
+- `GET /jobs` - List all jobs
+- `GET /jobs/{job_id}` - Get job details
+- `POST /jobs/{job_id}/start` - Start a job
+- `POST /jobs/{job_id}/complete` - Mark job as complete
+
+**Models:**
+- `GET /models` - List all models
+- `GET /models/{model_name}/download` - Download a model
+- `POST /models` - Upload a model
+
+**Federated Learning:**
+- `POST /federated/start` - Start federated learning round
+- `POST /devices/{device_id}/federated-update` - Submit federated update
+- `POST /federated/aggregate/{job_id}` - Aggregate federated updates
+
+**WebSocket:**
+- `WS /ws` - Real-time updates connection
+
+### Monitoring & Maintenance
+
+1. **Check Logs**
+   - Render dashboard → Your service → Logs
+   - Monitor for errors, warnings, or issues
+
+2. **Database Management**
+   - Render dashboard → Database → Connect
+   - Use PostgreSQL client to inspect tables:
+     - `devices`
+     - `training_jobs`
+     - `device_training`
+     - `models`
+
+3. **Performance Monitoring**
+   - Free tier: Basic logs in Render dashboard
+   - Monitor response times and error rates
+   - Watch for database connection issues
+
+### Common Post-Deployment Tasks
+
+1. **Set Up Custom Domain** (Optional)
+   - Render dashboard → Your service → Settings → Custom Domain
+   - Add your domain and configure DNS
+
+2. **Configure Environment Variables**
+   - Add production-specific settings:
+     - `ALLOWED_ORIGINS`: Your actual domain (not `*`)
+     - `ENVIRONMENT`: `production`
+     - Any API keys or secrets needed
+
+3. **Set Up Monitoring** (Optional)
+   - Configure alerts for:
+     - Service downtime
+     - High error rates
+     - Database connection failures
+
+4. **Backup Strategy**
+   - Render free tier: Manual backups
+   - Upgrade to Starter for automatic backups
+   - Export database regularly for critical data
+
+### Troubleshooting Post-Deployment
+
+**Service Not Responding:**
+- Check Render dashboard for service status
+- Free tier services spin down after 15min inactivity (50s cold start)
+- Check logs for errors
+
+**Database Connection Issues:**
+- Verify `DATABASE_URL` environment variable is set
+- Check database is running in Render dashboard
+- Ensure database and service are in same region
+
+**Dashboard Can't Connect:**
+- Verify `REACT_APP_API_URL` is set correctly
+- Check CORS settings (`ALLOWED_ORIGINS`)
+- Ensure web service is running
+
+### Next Steps for Production
+
+- [ ] Upgrade to Starter plan ($7/month) for always-on service
+- [ ] Set up custom domain
+- [ ] Configure proper CORS origins
+- [ ] Set up database backups
+- [ ] Add authentication/API keys
+- [ ] Configure monitoring and alerts
+- [ ] Set up CI/CD for automatic deployments
+- [ ] Review and optimize performance
+
+---
+
+## 📱 Connecting Swift Desktop App to Render Deployment
+
+### Method 1: Using the Settings UI (Recommended)
+
+1. **Open the Constellation Swift App**
+   - Launch the app on your Mac
+
+2. **Open Settings**
+   - Click the gear icon (⚙️) in the top-right corner
+   - Or use the menu: **Constellation → Settings**
+
+3. **Configure Server URL**
+   - In the **Server Configuration** section:
+     - **Server URL**: Enter your Render service URL
+       - Example: `https://project-constellation.onrender.com`
+       - **Important**: Use `https://` not `http://`
+     - **Auth Token**: Leave as default (`constellation-token`) or set your custom token
+
+4. **Configure Device Name** (Optional)
+   - Set a unique name for this device
+   - Example: `MacBook-Pro-John`, `iMac-Studio-1`
+
+5. **Test Connection**
+   - Click **"Test Connection"** button
+   - Should show success if server is reachable
+
+6. **Save Settings**
+   - Click **"Save"** button
+   - Configuration is saved to: `~/Library/Application Support/constellation_config.json`
+
+7. **Connect**
+   - Click **"Connect"** button in the main window
+   - Status should change to "Connected" (green dot)
+
+### Method 2: Manual Configuration File
+
+1. **Create Configuration File**
+   ```bash
+   # Create the directory if it doesn't exist
+   mkdir -p ~/Library/Application\ Support
+   
+   # Create configuration file
+   cat > ~/Library/Application\ Support/constellation_config.json << EOF
+   {
+     "server_url": "https://project-constellation.onrender.com",
+     "auth_token": "constellation-token",
+     "device_name": "My-MacBook-Pro",
+     "auto_connect": true
+   }
+   EOF
+   ```
+
+2. **Restart the App**
+   - The app will automatically load the configuration
+   - If `auto_connect` is `true`, it will connect automatically
+
+### Method 3: Update Default URL in Code
+
+If you want to change the default URL for all users:
+
+1. **Edit `desktop-swift/ConstellationApp_Network.swift`**
+   ```swift
+   // Change line 24 from:
+   @Published var serverURL = "http://localhost:8000"
+   
+   // To:
+   @Published var serverURL = "https://project-constellation.onrender.com"
+   ```
+
+2. **Rebuild the App**
+   ```bash
+   cd desktop-swift
+   ./build.sh
+   ```
+
+### Verification Steps
+
+1. **Check Connection Status**
+   - App should show green dot and "Connected" status
+   - Server URL should display your Render URL
+
+2. **Verify Device Registration**
+   ```bash
+   # Check if device appears in the API
+   curl https://project-constellation.onrender.com/devices
+   ```
+   - Should return your device in the list
+
+3. **Check Dashboard**
+   - Open your Render dashboard URL
+   - Go to Devices page
+   - Your Swift app device should appear in the list
+
+### Troubleshooting Swift App Connection
+
+**Connection Fails:**
+- ✅ Verify Render service is running (check Render dashboard)
+- ✅ Ensure URL uses `https://` not `http://`
+- ✅ Check URL doesn't have trailing slash: `https://project-constellation.onrender.com` (not `/`)
+- ✅ Free tier: First connection may take 50 seconds (cold start)
+- ✅ Check macOS firewall isn't blocking the connection
+
+**"Server error: 404" or "Invalid response":**
+- ✅ Verify the URL is correct
+- ✅ Check `/health` endpoint works: `curl https://project-constellation.onrender.com/health`
+- ✅ Ensure service is deployed and running
+
+**"Connection timeout":**
+- ✅ Free tier services spin down after 15min inactivity
+- ✅ First request wakes up the service (takes ~50 seconds)
+- ✅ Consider upgrading to Starter plan for always-on service
+
+**Device Not Appearing in Dashboard:**
+- ✅ Check device registration succeeded (look for "✅ Connected" in app)
+- ✅ Verify device appears in API: `curl https://project-constellation.onrender.com/devices`
+- ✅ Check dashboard is pointing to correct API URL
+
+**SSL/Certificate Errors:**
+- ✅ Render provides SSL certificates automatically
+- ✅ Ensure you're using `https://` not `http://`
+- ✅ If custom domain, verify SSL certificate is configured
+
+### Example Configuration
+
+**For Production:**
+```json
+{
+  "server_url": "https://project-constellation.onrender.com",
+  "auth_token": "your-secure-token-here",
+  "device_name": "MacBook-Pro-Office",
+  "auto_connect": true
+}
+```
+
+**For Local Development:**
+```json
+{
+  "server_url": "http://localhost:8000",
+  "auth_token": "constellation-token",
+  "device_name": "MacBook-Pro-Dev",
+  "auto_connect": true
+}
+```
+
+### Multiple Devices
+
+You can connect multiple Mac devices to the same Render deployment:
+
+1. **Each device needs unique configuration:**
+   - Use different `device_name` for each device
+   - Same `server_url` (your Render URL)
+   - Same or different `auth_token` (depending on your security setup)
+
+2. **All devices will appear in dashboard:**
+   - Dashboard → Devices page shows all connected devices
+   - Each device can participate in training jobs
+
+### Security Considerations
+
+1. **Auth Token**
+   - Default token is `constellation-token` (for testing)
+   - For production, use a strong, unique token
+   - Consider implementing proper authentication in the server
+
+2. **HTTPS Only**
+   - Always use `https://` for Render deployments
+   - Never use `http://` for production
+
+3. **Network Security**
+   - Devices connect over public internet to Render
+   - Ensure your Render service has proper CORS settings
+   - Consider adding IP whitelisting if needed
 
 ---
 
