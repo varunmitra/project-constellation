@@ -1,0 +1,44 @@
+services:
+  # FastAPI Server
+  - type: web
+    name: constellation-server
+    env: docker
+    plan: free
+    dockerfilePath: ./Dockerfile.server
+    dockerContext: .
+    buildCommand: ""
+    startCommand: python server/app.py
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: constellation-db
+          property: connectionString
+      - key: PORT
+        value: 8000
+      - key: PYTHONPATH
+        value: /app
+      - key: ENVIRONMENT
+        value: production
+
+  # React Dashboard (Static Site)
+  - type: static
+    name: constellation-dashboard
+    buildCommand: cd dashboard && npm install && npm run build
+    publishPath: dashboard/build
+    pullRequestPreviewsEnabled: false
+    envVars:
+      - key: REACT_APP_API_URL
+        fromService:
+          name: constellation-server
+          type: web
+          property: host
+
+databases:
+  # PostgreSQL Database
+  - name: constellation-db
+    plan: free
+    databaseName: constellation
+    user: constellation_user
+
+

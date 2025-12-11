@@ -40,6 +40,9 @@ models/*.pkl
 checkpoints/
 *.ckpt
 
+# Federated learning updates (large files)
+federated_updates/
+
 # Logs
 logs/
 *.log
