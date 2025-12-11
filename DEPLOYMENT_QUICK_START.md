@@ -305,6 +305,48 @@ Once the dashboard loads, you'll see:
 - ✅ Create a training job to see it appear
 - ✅ Check browser console (F12) for API errors
 
+**Dashboard Shows 404 for JS/CSS Files or "MIME type 'text/plain'" Error:**
+- ❌ **Problem**: Static files aren't being served correctly or build didn't complete
+- ✅ **Solution 1**: Check Build Logs
+  - Go to Render → Static Site → Logs
+  - Verify `npm run build` completed successfully
+  - Look for "Build successful" or "The build folder is ready to be deployed"
+  - If build failed, fix errors and rebuild
+  
+- ✅ **Solution 2**: Verify Configuration Settings
+  - **Root Directory**: Must be `dashboard` (not empty!)
+  - **Build Command**: `npm install && npm run build`
+  - **Publish Directory**: `build` (relative to Root Directory)
+  - Full path Render uses: `dashboard/build/`
+  
+- ✅ **Solution 3**: Verify Build Output Structure**
+  - After build, should have:
+    - `dashboard/build/index.html`
+    - `dashboard/build/static/js/main.*.js`
+    - `dashboard/build/static/css/main.*.css`
+    - `dashboard/build/manifest.json`
+  - If these don't exist, build didn't complete
+  
+- ✅ **Solution 4**: Check for Build Errors**
+  - Common issues:
+    - Missing dependencies (check `package.json`)
+    - Node version incompatibility
+    - Build script errors
+  - Fix errors and rebuild
+  
+- ✅ **Solution 5**: Rebuild Dashboard**
+  - Option A: Manual rebuild
+    - Render → Static Site → Manual Deploy → Deploy latest commit
+  - Option B: Trigger via commit
+    - Push any change to trigger auto-rebuild
+    - Wait for build to complete (~3-5 minutes)
+  
+- ✅ **Solution 6**: Verify `_redirects` File**
+  - File should exist: `dashboard/public/_redirects`
+  - Content: `/*    /index.html   200`
+  - This is automatically copied to `build/` during build
+  - Ensures SPA routing works correctly
+
 **Build Fails:**
 
 **Error: "Installing Poetry" or "Could not find torch==2.1.0" (Python packages being installed)**
