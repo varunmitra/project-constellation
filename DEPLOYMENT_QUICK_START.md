@@ -847,9 +847,22 @@ If you're getting errors when linking your GitHub repository to Render, try thes
 - Ensure `ALLOWED_ORIGINS` includes your dashboard URL
 
 ### Dashboard Can't Connect to API
-- Verify `REACT_APP_API_URL` is set correctly
-- Check CORS settings allow your dashboard domain
-- Ensure API server is running
+- ✅ Verify `REACT_APP_API_URL` is set correctly in Static Site environment variables
+- ✅ Check CORS settings allow your dashboard domain (`ALLOWED_ORIGINS` should include dashboard URL)
+- ✅ Ensure API server is running (check Render dashboard)
+- ✅ Verify API endpoints work: `curl https://project-constellation.onrender.com/devices`
+- ✅ Check browser console for specific error messages
+- ✅ Free tier: First request may take 50 seconds (cold start)
+
+### WebSocket Connection Fails
+- ⚠️ **Note**: Render free tier has limited WebSocket support
+- ✅ Dashboard will automatically fall back to polling mode if WebSocket fails
+- ✅ This is expected behavior - polling mode works fine, just less real-time
+- ✅ To enable WebSockets:
+  - Upgrade to Starter plan ($7/month) for better WebSocket support
+  - Or use polling mode (already implemented as fallback)
+- ✅ Verify WebSocket endpoint: `wss://project-constellation.onrender.com/ws`
+- ✅ Check server logs for WebSocket connection errors
 
 ---
 
