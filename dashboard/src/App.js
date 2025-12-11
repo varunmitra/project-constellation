@@ -3,13 +3,6 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import axios from 'axios';
 import './App.css';
 
-// Configure axios with API base URL
-const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-const apiClient = axios.create({
-  baseURL: apiUrl,
-  timeout: 30000,
-});
-
 // Components
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
@@ -22,6 +15,13 @@ import ErrorBoundary from './components/ErrorBoundary';
 
 // Context
 import { AppProvider } from './context/AppContext';
+
+// Configure axios with API base URL
+const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const apiClient = axios.create({
+  baseURL: apiUrl,
+  timeout: 30000,
+});
 
 function App() {
   const [isLoading, setIsLoading] = useState(true);

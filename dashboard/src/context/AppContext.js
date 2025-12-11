@@ -413,7 +413,8 @@ export function AppProvider({ children }) {
         wsRef.current = null;
       }
     };
-  }, []); // Only run once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount - api, connectWebSocket, and state.jobs are stable references
 
   const value = {
     ...state,
