@@ -3,6 +3,13 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import axios from 'axios';
 import './App.css';
 
+// Configure axios with API base URL
+const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const apiClient = axios.create({
+  baseURL: apiUrl,
+  timeout: 30000,
+});
+
 // Components
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
@@ -24,14 +31,14 @@ function App() {
     // Initialize app
     const initializeApp = async () => {
       try {
-        // Test server connection - use full URL if proxy doesn't work
-        const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-        await axios.get(`${apiUrl}/health`, { timeout: 5000 });
+        // Test server connection
+        await apiClient.get('/health');
         setIsLoading(false);
       } catch (err) {
         console.error('Server connection error:', err);
         // Don't block the app - just show warning
-        setError('Server connection failed. Some features may not work. Server should be running on http://localhost:8000');
+        const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+        setError(`Server connection failed. Some features may not work. Server should be running on ${apiUrl}`);
         setIsLoading(false);
       }
     };

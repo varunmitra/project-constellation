@@ -1,6 +1,16 @@
 import React, { createContext, useContext, useReducer, useEffect, useRef } from 'react';
 import axios from 'axios';
 
+// Configure axios with API base URL
+const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const apiClient = axios.create({
+  baseURL: apiUrl,
+  timeout: 30000, // 30 seconds for Render free tier cold starts
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
 const AppContext = createContext();
 
 // Initial state
@@ -238,7 +248,7 @@ export function AppProvider({ children }) {
       for (let attempt = 0; attempt < retries; attempt++) {
         try {
           dispatch({ type: ActionTypes.SET_LOADING, payload: { resource: 'devices', loading: true } });
-          const response = await axios.get('/devices', { timeout: 10000 });
+          const response = await apiClient.get('/devices');
           dispatch({ type: ActionTypes.SET_DEVICES, payload: response.data });
           dispatch({ type: ActionTypes.SET_ERROR, payload: null });
           return;
@@ -260,7 +270,7 @@ export function AppProvider({ children }) {
       for (let attempt = 0; attempt < retries; attempt++) {
         try {
           dispatch({ type: ActionTypes.SET_LOADING, payload: { resource: 'jobs', loading: true } });
-          const response = await axios.get('/jobs', { timeout: 10000 });
+          const response = await apiClient.get('/jobs');
           dispatch({ type: ActionTypes.SET_JOBS, payload: response.data });
           dispatch({ type: ActionTypes.SET_ERROR, payload: null });
           return;
@@ -281,7 +291,7 @@ export function AppProvider({ children }) {
     fetchModels: async () => {
       try {
         dispatch({ type: ActionTypes.SET_LOADING, payload: { resource: 'models', loading: true } });
-        const response = await axios.get('/models', { timeout: 10000 });
+        const response = await apiClient.get('/models');
         dispatch({ type: ActionTypes.SET_MODELS, payload: response.data.models || [] });
         dispatch({ type: ActionTypes.SET_ERROR, payload: null }); // Clear any previous errors
       } catch (error) {
@@ -296,7 +306,7 @@ export function AppProvider({ children }) {
     createJob: async (jobData, retries = 2) => {
       for (let attempt = 0; attempt < retries; attempt++) {
         try {
-          const response = await axios.post('/jobs', jobData, { timeout: 15000 });
+          const response = await apiClient.post('/jobs', jobData);
           dispatch({ type: ActionTypes.ADD_JOB, payload: response.data });
           dispatch({ type: ActionTypes.SET_ERROR, payload: null });
           return response.data;
@@ -315,7 +325,7 @@ export function AppProvider({ children }) {
     // Start job
     startJob: async (jobId) => {
       try {
-        await axios.post(`/jobs/${jobId}/start`);
+        await apiClient.post(`/jobs/${jobId}/start`);
         dispatch({ type: ActionTypes.UPDATE_JOB, payload: { id: jobId, status: 'running' } });
       } catch (error) {
         dispatch({ type: ActionTypes.SET_ERROR, payload: error.message });
@@ -336,7 +346,7 @@ export function AppProvider({ children }) {
     // Cleanup devices
     cleanupDevices: async () => {
       try {
-        const response = await axios.post('/devices/cleanup');
+        const response = await apiClient.post('/devices/cleanup');
         // Refresh devices after cleanup
         await api.fetchDevices();
         return response.data;
