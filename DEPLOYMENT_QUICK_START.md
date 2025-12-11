@@ -870,9 +870,15 @@ If you're getting errors when linking your GitHub repository to Render, try thes
   - WebSocket connections require HTTP/1.1 Upgrade header, which free tier doesn't handle
   - Error: `WebSocket connection to 'wss://...' failed` is normal on free tier
 - ✅ **Solutions:**
-  1. **Use polling mode** (already implemented, works perfectly)
-  2. **Upgrade to Starter plan** ($7/month) for WebSocket support
-- ✅ Verify WebSocket endpoint exists: `wss://project-constellation.onrender.com/ws` (will fail on free tier)
+  1. **Use polling mode** (already implemented, works perfectly) - **Recommended for free tier**
+  2. **Upgrade to Starter plan** ($7/month) for WebSocket support - **WebSockets will work!**
+- ✅ **Starter Plan WebSocket Support:**
+  - ✅ Full WebSocket support with no connection limits
+  - ✅ WebSocket connections persist (no fixed timeout)
+  - ✅ Connections may close during deployments/maintenance (implement keepalive/ping-pong)
+  - ✅ Your FastAPI WebSocket endpoint (`/ws`) will work automatically
+  - ✅ Dashboard will connect via WebSocket instead of polling
+- ✅ Verify WebSocket endpoint exists: `wss://project-constellation.onrender.com/ws` (will fail on free tier, works on Starter)
 - ✅ Check server logs - you may see connection attempts but they'll fail on free tier
 - ✅ **Dashboard will work fine** - it automatically uses polling when WebSocket fails
 
@@ -888,6 +894,9 @@ If you're getting errors when linking your GitHub repository to Render, try thes
 
 ### Starter Tier (Production)
 - Web Service: $7/month
+  - ✅ **WebSocket support** (real-time updates)
+  - ✅ Always-on (no cold starts)
+  - ✅ Better performance
 - Database: $7/month (10GB storage)
 - Static Site: $0
 - **Total: $14/month**
