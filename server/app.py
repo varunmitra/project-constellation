@@ -1226,84 +1226,104 @@ async def get_federated_status(round_id: str):
 
 def add_model_name_column():
     """Add model_name column to training_jobs table if it doesn't exist"""
-    from sqlalchemy import create_engine, text
-    from sqlalchemy.orm import sessionmaker
-    
-    engine = create_engine("sqlite:///./constellation.db")
+    from sqlalchemy import text, inspect
     
     try:
+        # Check if table exists first
+        inspector = inspect(engine)
+        if 'training_jobs' not in inspector.get_table_names():
+            print("⚠️ training_jobs table doesn't exist yet, skipping migration")
+            return
+        
         # Check if model_name column exists
-        with engine.connect() as conn:
-            result = conn.execute(text("PRAGMA table_info(training_jobs)"))
-            columns = [row[1] for row in result.fetchall()]
-            
-            if 'model_name' not in columns:
-                # Add the column
-                conn.execute(text("ALTER TABLE training_jobs ADD COLUMN model_name VARCHAR"))
+        columns = [col['name'] for col in inspector.get_columns('training_jobs')]
+        
+        if 'model_name' not in columns:
+            # Add the column - use appropriate SQL for database type
+            with engine.connect() as conn:
+                if DATABASE_URL.startswith("sqlite"):
+                    conn.execute(text("ALTER TABLE training_jobs ADD COLUMN model_name VARCHAR"))
+                else:
+                    # PostgreSQL
+                    conn.execute(text("ALTER TABLE training_jobs ADD COLUMN model_name VARCHAR"))
                 conn.commit()
                 print("✅ Added model_name column to training_jobs table")
-            else:
-                print("✅ model_name column already exists")
+        else:
+            print("✅ model_name column already exists")
                 
     except Exception as e:
         print(f"❌ Error adding model_name column: {e}")
 
 def add_dataset_column():
     """Add dataset column to training_jobs table if it doesn't exist"""
-    from sqlalchemy import create_engine, text
-    from sqlalchemy.orm import sessionmaker
-    
-    engine = create_engine("sqlite:///./constellation.db")
+    from sqlalchemy import text, inspect
     
     try:
+        # Check if table exists first
+        inspector = inspect(engine)
+        if 'training_jobs' not in inspector.get_table_names():
+            print("⚠️ training_jobs table doesn't exist yet, skipping migration")
+            return
+        
         # Check if dataset column exists
-        with engine.connect() as conn:
-            result = conn.execute(text("PRAGMA table_info(training_jobs)"))
-            columns = [row[1] for row in result.fetchall()]
-            
-            if 'dataset' not in columns:
-                # Add the column
-                conn.execute(text("ALTER TABLE training_jobs ADD COLUMN dataset VARCHAR DEFAULT 'synthetic'"))
+        columns = [col['name'] for col in inspector.get_columns('training_jobs')]
+        
+        if 'dataset' not in columns:
+            # Add the column - use appropriate SQL for database type
+            with engine.connect() as conn:
+                if DATABASE_URL.startswith("sqlite"):
+                    conn.execute(text("ALTER TABLE training_jobs ADD COLUMN dataset VARCHAR DEFAULT 'synthetic'"))
+                else:
+                    # PostgreSQL
+                    conn.execute(text("ALTER TABLE training_jobs ADD COLUMN dataset VARCHAR DEFAULT 'synthetic'"))
                 conn.commit()
                 print("✅ Added dataset column to training_jobs table")
-            else:
-                print("✅ dataset column already exists")
+        else:
+            print("✅ dataset column already exists")
                 
     except Exception as e:
         print(f"❌ Error adding dataset column: {e}")
 
 def fix_completed_jobs_on_startup():
     """Fix jobs that are at 100% but still marked as running on startup"""
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import sessionmaker
-    
-    engine = create_engine("sqlite:///./constellation.db")
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    db = SessionLocal()
+    from sqlalchemy import inspect
     
     try:
-        # Find jobs that are at 100% but still running
-        jobs_to_fix = db.query(TrainingJob).filter(
-            TrainingJob.status == "running",
-            TrainingJob.progress >= 100.0
-        ).all()
+        # Check if table exists first
+        inspector = inspect(engine)
+        if 'training_jobs' not in inspector.get_table_names():
+            print("⚠️ training_jobs table doesn't exist yet, skipping job fix")
+            return
         
-        if jobs_to_fix:
-            print(f"🔧 Fixing {len(jobs_to_fix)} completed jobs on startup...")
-            for job in jobs_to_fix:
-                job.status = "completed"
-                job.completed_at = datetime.utcnow()
-                print(f"✅ Fixed job: {job.name} ({job.progress}%)")
+        db = SessionLocal()
+        
+        try:
+            # Find jobs that are at 100% but still running
+            jobs_to_fix = db.query(TrainingJob).filter(
+                TrainingJob.status == "running",
+                TrainingJob.progress >= 100.0
+            ).all()
             
-            db.commit()
-            print(f"✅ Fixed {len(jobs_to_fix)} completed jobs")
-        else:
-            print("✅ No completed jobs to fix")
+            if jobs_to_fix:
+                print(f"🔧 Fixing {len(jobs_to_fix)} completed jobs on startup...")
+                for job in jobs_to_fix:
+                    job.status = "completed"
+                    job.completed_at = datetime.utcnow()
+                    print(f"✅ Fixed job: {job.name} ({job.progress}%)")
+                
+                db.commit()
+                print(f"✅ Fixed {len(jobs_to_fix)} completed jobs")
+            else:
+                print("✅ No completed jobs to fix")
+                
+        except Exception as e:
+            print(f"❌ Error fixing completed jobs: {e}")
+            db.rollback()
+        finally:
+            db.close()
             
     except Exception as e:
-        print(f"❌ Error fixing completed jobs: {e}")
-    finally:
-        db.close()
+        print(f"❌ Error checking table existence: {e}")
 
 if __name__ == "__main__":
     # Run database migrations
