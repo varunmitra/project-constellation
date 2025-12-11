@@ -349,6 +349,13 @@ Once the dashboard loads, you'll see:
 
 **Build Fails:**
 
+**Error: "Import in body of module" or ESLint errors**
+- ✅ **Solution**: The latest commit (08f1038) fixes these errors
+- ✅ If Render is building from an older commit:
+  1. Go to Render → Static Site → Manual Deploy → Deploy latest commit
+  2. Or wait a few minutes for auto-deploy to pick up the latest commit
+  3. Verify the commit hash in build logs matches `08f1038` or later
+
 **Error: "Installing Poetry" or "Could not find torch==2.1.0" (Python packages being installed)**
 - ❌ **Problem**: Render is detecting `requirements.txt` in root and treating your Static Site as a Python service
 - ✅ **Solution**: 
@@ -855,14 +862,19 @@ If you're getting errors when linking your GitHub repository to Render, try thes
 - ✅ Free tier: First request may take 50 seconds (cold start)
 
 ### WebSocket Connection Fails
-- ⚠️ **Note**: Render free tier has limited WebSocket support
+- ⚠️ **IMPORTANT**: Render free tier **does NOT support WebSockets**
 - ✅ Dashboard will automatically fall back to polling mode if WebSocket fails
-- ✅ This is expected behavior - polling mode works fine, just less real-time
-- ✅ To enable WebSockets:
-  - Upgrade to Starter plan ($7/month) for better WebSocket support
-  - Or use polling mode (already implemented as fallback)
-- ✅ Verify WebSocket endpoint: `wss://project-constellation.onrender.com/ws`
-- ✅ Check server logs for WebSocket connection errors
+- ✅ This is **expected behavior** on free tier - polling mode works fine, just less real-time
+- ✅ **Why WebSocket fails on free tier:**
+  - Render free tier uses HTTP/1.1 load balancers that don't support WebSocket upgrades
+  - WebSocket connections require HTTP/1.1 Upgrade header, which free tier doesn't handle
+  - Error: `WebSocket connection to 'wss://...' failed` is normal on free tier
+- ✅ **Solutions:**
+  1. **Use polling mode** (already implemented, works perfectly)
+  2. **Upgrade to Starter plan** ($7/month) for WebSocket support
+- ✅ Verify WebSocket endpoint exists: `wss://project-constellation.onrender.com/ws` (will fail on free tier)
+- ✅ Check server logs - you may see connection attempts but they'll fail on free tier
+- ✅ **Dashboard will work fine** - it automatically uses polling when WebSocket fails
 
 ---
 

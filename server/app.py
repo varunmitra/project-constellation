@@ -181,6 +181,8 @@ class ConnectionManager:
         self.active_connections: List[WebSocket] = []
     
     async def connect(self, websocket: WebSocket):
+        # Note: Connection acceptance is now handled in the endpoint for origin validation
+        # This method is kept for backward compatibility but may not be used
         await websocket.accept()
         self.active_connections.append(websocket)
         print(f"✅ WebSocket client connected. Total connections: {len(self.active_connections)}")
@@ -225,7 +227,44 @@ async def health_check():
 # WebSocket endpoint for real-time updates
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    await manager.connect(websocket)
+    """
+    WebSocket endpoint for real-time updates.
+    Note: CORS middleware doesn't apply to WebSocket connections, so we manually check origins.
+    """
+    # Get origin from headers
+    origin = websocket.headers.get("origin") or websocket.headers.get("Origin")
+    
+    # Validate origin if ALLOWED_ORIGINS is set (not "*")
+    if allowed_origins != ["*"]:
+        if origin:
+            # Check if origin matches any allowed origin
+            origin_match = False
+            for allowed_origin in allowed_origins:
+                if origin == allowed_origin or origin.startswith(allowed_origin.rstrip("/")):
+                    origin_match = True
+                    break
+            
+            if not origin_match:
+                print(f"❌ WebSocket connection rejected: origin '{origin}' not in allowed origins")
+                await websocket.close(code=1008, reason="Origin not allowed")
+                return
+        else:
+            # In production, require origin header
+            env = os.environ.get("ENVIRONMENT", "development")
+            if env == "production":
+                print(f"❌ WebSocket connection rejected: missing origin header")
+                await websocket.close(code=1008, reason="Origin required")
+                return
+    
+    # Accept connection
+    try:
+        await websocket.accept()
+        manager.active_connections.append(websocket)
+        print(f"✅ WebSocket client connected from origin: {origin}. Total connections: {len(manager.active_connections)}")
+    except Exception as e:
+        print(f"❌ Error accepting WebSocket connection: {e}")
+        return
+    
     try:
         while True:
             # Keep connection alive and handle any incoming messages
@@ -234,6 +273,7 @@ async def websocket_endpoint(websocket: WebSocket):
             await manager.send_personal_message({"type": "pong", "message": "Connection active"}, websocket)
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+        print(f"🔌 WebSocket client disconnected normally")
     except Exception as e:
         print(f"❌ WebSocket error: {e}")
         manager.disconnect(websocket)
