@@ -1225,74 +1225,107 @@ async def get_federated_status(round_id: str):
     }
 
 def add_model_name_column():
-    """Add model_name column to training_jobs table if it doesn't exist"""
+    """Add model_name column to training_jobs table if it doesn't exist (legacy migration)"""
     from sqlalchemy import text, inspect
+    from sqlalchemy.exc import OperationalError, ProgrammingError
     
     try:
+        # Test database connection first
+        with engine.connect() as test_conn:
+            test_conn.execute(text("SELECT 1"))
+        
         # Check if table exists first
         inspector = inspect(engine)
-        if 'training_jobs' not in inspector.get_table_names():
-            print("⚠️ training_jobs table doesn't exist yet, skipping migration")
+        table_names = inspector.get_table_names()
+        
+        if 'training_jobs' not in table_names:
+            print("ℹ️ training_jobs table doesn't exist yet, skipping migration (will be created by Base.metadata.create_all)")
             return
         
         # Check if model_name column exists
-        columns = [col['name'] for col in inspector.get_columns('training_jobs')]
+        try:
+            columns = [col['name'] for col in inspector.get_columns('training_jobs')]
+        except (OperationalError, ProgrammingError) as e:
+            print(f"ℹ️ Could not inspect columns (table may not exist yet): {e}")
+            return
+        except Exception as e:
+            print(f"ℹ️ Could not inspect columns: {e}")
+            return
         
         if 'model_name' not in columns:
-            # Add the column - use appropriate SQL for database type
-            with engine.connect() as conn:
-                if DATABASE_URL.startswith("sqlite"):
-                    conn.execute(text("ALTER TABLE training_jobs ADD COLUMN model_name VARCHAR"))
-                else:
-                    # PostgreSQL
-                    conn.execute(text("ALTER TABLE training_jobs ADD COLUMN model_name VARCHAR"))
-                conn.commit()
-                print("✅ Added model_name column to training_jobs table")
+            # Add the column - use transaction properly
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE training_jobs ADD COLUMN model_name VARCHAR"))
+            print("✅ Added model_name column to training_jobs table")
         else:
-            print("✅ model_name column already exists")
+            print("ℹ️ model_name column already exists")
                 
+    except (OperationalError, ProgrammingError) as e:
+        # These are expected if table doesn't exist - non-critical
+        print(f"ℹ️ Migration check for model_name column skipped: {e}")
     except Exception as e:
-        print(f"❌ Error adding model_name column: {e}")
+        # Don't fail startup if migration fails
+        print(f"ℹ️ Migration check for model_name column: {e} (non-critical)")
 
 def add_dataset_column():
-    """Add dataset column to training_jobs table if it doesn't exist"""
+    """Add dataset column to training_jobs table if it doesn't exist (legacy migration)"""
     from sqlalchemy import text, inspect
+    from sqlalchemy.exc import OperationalError, ProgrammingError
     
     try:
+        # Test database connection first
+        with engine.connect() as test_conn:
+            test_conn.execute(text("SELECT 1"))
+        
         # Check if table exists first
         inspector = inspect(engine)
-        if 'training_jobs' not in inspector.get_table_names():
-            print("⚠️ training_jobs table doesn't exist yet, skipping migration")
+        table_names = inspector.get_table_names()
+        
+        if 'training_jobs' not in table_names:
+            print("ℹ️ training_jobs table doesn't exist yet, skipping migration (will be created by Base.metadata.create_all)")
             return
         
         # Check if dataset column exists
-        columns = [col['name'] for col in inspector.get_columns('training_jobs')]
+        try:
+            columns = [col['name'] for col in inspector.get_columns('training_jobs')]
+        except (OperationalError, ProgrammingError) as e:
+            print(f"ℹ️ Could not inspect columns (table may not exist yet): {e}")
+            return
+        except Exception as e:
+            print(f"ℹ️ Could not inspect columns: {e}")
+            return
         
         if 'dataset' not in columns:
-            # Add the column - use appropriate SQL for database type
-            with engine.connect() as conn:
-                if DATABASE_URL.startswith("sqlite"):
-                    conn.execute(text("ALTER TABLE training_jobs ADD COLUMN dataset VARCHAR DEFAULT 'synthetic'"))
-                else:
-                    # PostgreSQL
-                    conn.execute(text("ALTER TABLE training_jobs ADD COLUMN dataset VARCHAR DEFAULT 'synthetic'"))
-                conn.commit()
-                print("✅ Added dataset column to training_jobs table")
+            # Add the column - use transaction properly
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE training_jobs ADD COLUMN dataset VARCHAR DEFAULT 'synthetic'"))
+            print("✅ Added dataset column to training_jobs table")
         else:
-            print("✅ dataset column already exists")
+            print("ℹ️ dataset column already exists")
                 
+    except (OperationalError, ProgrammingError) as e:
+        # These are expected if table doesn't exist - non-critical
+        print(f"ℹ️ Migration check for dataset column skipped: {e}")
     except Exception as e:
-        print(f"❌ Error adding dataset column: {e}")
+        # Don't fail startup if migration fails
+        print(f"ℹ️ Migration check for dataset column: {e} (non-critical)")
 
 def fix_completed_jobs_on_startup():
     """Fix jobs that are at 100% but still marked as running on startup"""
-    from sqlalchemy import inspect
+    from sqlalchemy import inspect, text
+    from sqlalchemy.exc import OperationalError, ProgrammingError
     
     try:
+        # Test database connection first
+        with engine.connect() as test_conn:
+            test_conn.execute(text("SELECT 1"))
+        
         # Check if table exists first
         inspector = inspect(engine)
-        if 'training_jobs' not in inspector.get_table_names():
-            print("⚠️ training_jobs table doesn't exist yet, skipping job fix")
+        table_names = inspector.get_table_names()
+        
+        if 'training_jobs' not in table_names:
+            print("ℹ️ training_jobs table doesn't exist yet, skipping job fix")
             return
         
         db = SessionLocal()
@@ -1314,19 +1347,33 @@ def fix_completed_jobs_on_startup():
                 db.commit()
                 print(f"✅ Fixed {len(jobs_to_fix)} completed jobs")
             else:
-                print("✅ No completed jobs to fix")
+                print("ℹ️ No completed jobs to fix")
                 
+        except (OperationalError, ProgrammingError) as e:
+            print(f"ℹ️ Error fixing completed jobs (table may not exist yet): {e}")
+            db.rollback()
         except Exception as e:
-            print(f"❌ Error fixing completed jobs: {e}")
+            print(f"ℹ️ Error fixing completed jobs: {e} (non-critical)")
             db.rollback()
         finally:
             db.close()
             
+    except (OperationalError, ProgrammingError) as e:
+        # These are expected if table doesn't exist - non-critical
+        print(f"ℹ️ Error checking table existence for job fix: {e} (non-critical)")
     except Exception as e:
-        print(f"❌ Error checking table existence: {e}")
+        # Don't fail startup if this check fails
+        print(f"ℹ️ Error checking table existence for job fix: {e} (non-critical)")
 
 if __name__ == "__main__":
-    # Run database migrations
+    # Debug: Log database connection info
+    db_type = "SQLite" if DATABASE_URL.startswith("sqlite") else "PostgreSQL"
+    print(f"🔍 Database connection: {db_type}")
+    print(f"🔍 DATABASE_URL starts with: {DATABASE_URL[:20]}...")
+    
+    # Run database migrations (these are legacy migrations for backward compatibility)
+    # Note: These columns are already in the TrainingJob model, so new databases
+    # will have them created automatically by Base.metadata.create_all()
     add_model_name_column()
     add_dataset_column()
     
