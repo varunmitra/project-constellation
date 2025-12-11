@@ -18,7 +18,9 @@ pandas==2.1.3
 requests==2.31.0
 
 # Database
-sqlite3  # Built-in with Python
+# sqlite3 is built-in with Python, no need to install
+# For PostgreSQL support (used in production on Render)
+psycopg2-binary==2.9.9
 
 # Optional: For advanced federated learning
 # cryptography==41.0.7

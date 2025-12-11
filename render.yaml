@@ -4,6 +4,7 @@ services:
     name: constellation-server
     env: docker
     plan: free
+    region: oregon  # Options: oregon, frankfurt, singapore, mumbai, sydney, etc.
     dockerfilePath: ./Dockerfile.server
     dockerContext: .
     buildCommand: ""
@@ -38,6 +39,7 @@ databases:
   # PostgreSQL Database
   - name: constellation-db
     plan: free
+    region: oregon  # Must match web service region! Options: oregon, frankfurt, singapore, mumbai, sydney, etc.
     databaseName: constellation
     user: constellation_user
 
