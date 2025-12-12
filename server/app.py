@@ -535,67 +535,27 @@ async def start_training_job(job_id: str, db: Session = Depends(get_db)):
     if not job:
         raise HTTPException(status_code=404, detail="Training job not found")
     
-    # If job is already running or completed, return success (idempotent)
-    if job.status == "running":
-        # Check if there's an active assignment
-        active_assignment = db.query(DeviceTraining).filter(
-            DeviceTraining.job_id == job_id,
-            DeviceTraining.status.in_(["assigned", "running"])
-        ).first()
-        
-        assigned_device_name = None
-        if active_assignment:
-            device = db.query(Device).filter(Device.id == active_assignment.device_id).first()
-            assigned_device_name = device.name if device else None
-        
-        return {
-            "status": "job already running",
-            "job_id": job_id,
-            "assigned_device": assigned_device_name,
-            "message": "Job was already started and is currently running"
-        }
-    
-    if job.status == "completed":
-        return {
-            "status": "job already completed",
-            "job_id": job_id,
-            "message": "Job has already been completed"
-        }
-    
     if job.status != "pending":
-        raise HTTPException(status_code=400, detail=f"Job is in '{job.status}' status and cannot be started")
+        raise HTTPException(status_code=400, detail="Job is not in pending status")
     
     # Intelligent job distribution: find best device for this job
     best_device = get_best_device_for_job(job, db)
     
     if best_device:
-        # Check if assignment already exists (avoid duplicates)
-        existing_assignment = db.query(DeviceTraining).filter(
-            DeviceTraining.device_id == best_device.id,
-            DeviceTraining.job_id == job.id,
-            DeviceTraining.status.in_(["assigned", "running"])
-        ).first()
-        
-        if not existing_assignment:
-            # Create assignment for the best device
-            device_training = DeviceTraining(
-                device_id=best_device.id,
-                job_id=job.id,
-                status="assigned"
-            )
-            db.add(device_training)
-            print(f"✅ Assigned job '{job.name}' to device '{best_device.name}' (GPU: {best_device.gpu_available}, Cores: {best_device.cpu_cores})")
-        else:
-            print(f"ℹ️ Job '{job.name}' already assigned to device '{best_device.name}'")
+        # Create assignment for the best device
+        device_training = DeviceTraining(
+            device_id=best_device.id,
+            job_id=job.id,
+            status="assigned"
+        )
+        db.add(device_training)
+        print(f"✅ Assigned job '{job.name}' to device '{best_device.name}' (GPU: {best_device.gpu_available}, Cores: {best_device.cpu_cores})")
     else:
         print(f"⚠️ No available devices for job '{job.name}', will be assigned when device requests it")
     
-    # Only update status if it's still pending
-    if job.status == "pending":
-        job.status = "running"
-        if not job.started_at:
-            job.started_at = datetime.utcnow()
-        db.commit()
+    job.status = "running"
+    job.started_at = datetime.utcnow()
+    db.commit()
     
     return {
         "status": "job started", 
