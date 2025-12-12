@@ -806,15 +806,22 @@ async def get_next_training_job(device_id: str, db: Session = Depends(get_db)):
         # Calculate how well this device matches the job
         score = calculate_device_score(device, job)
         
-        # Bonus for jobs that haven't started (progress = 0)
-        if job.progress == 0:
-            score += 100
-        
-        # Penalty for jobs that are already running elsewhere
+        # Check if this is a stuck job (running status, 0% progress, no active assignments)
         other_assignments = db.query(DeviceTraining).filter(
             DeviceTraining.job_id == job.id,
             DeviceTraining.status.in_(["assigned", "running"])
         ).count()
+        
+        # High priority for stuck jobs: running status + 0% progress + no assignments
+        if job.status == "running" and job.progress == 0 and other_assignments == 0:
+            score += 1000  # Very high priority to pick up stuck jobs
+            print(f"🔧 Detected stuck job '{job.name}' (running, 0% progress, no assignments) - high priority")
+        
+        # Bonus for jobs that haven't started (progress = 0)
+        elif job.progress == 0:
+            score += 100
+        
+        # Penalty for jobs that are already running elsewhere (but not stuck)
         if other_assignments > 0:
             score -= 50 * other_assignments  # Prefer jobs not yet started elsewhere
         
@@ -1121,6 +1128,67 @@ async def get_federated_update(device_id: str, round_id: str):
     # In a real implementation, this would check the actual update status
     return {"status": "ready", "round_id": round_id}
 
+@app.get("/federated/updates/{job_id}")
+async def get_federated_updates_for_job(job_id: str, db: Session = Depends(get_db)):
+    """Get list of federated update files for a job (for local aggregation)"""
+    project_root = Path(__file__).parent.parent
+    federated_updates_dir = project_root / "federated_updates"
+    
+    if not federated_updates_dir.exists():
+        raise HTTPException(status_code=404, detail="Federated updates directory not found")
+    
+    # Find all update files for this job
+    update_files = []
+    for update_file in federated_updates_dir.glob("*.json"):
+        try:
+            with open(update_file, 'r') as f:
+                update_data = json.load(f)
+                if update_data.get("job_id") == job_id:
+                    update_files.append({
+                        "filename": update_file.name,
+                        "device_id": update_data.get("device_id"),
+                        "assignment_id": update_data.get("assignment_id"),
+                        "sample_count": update_data.get("sample_count", 0),
+                        "accuracy": update_data.get("accuracy", 0.0),
+                        "loss": update_data.get("loss", 0.0),
+                        "size_mb": round(update_file.stat().st_size / (1024 * 1024), 2)
+                    })
+        except Exception as e:
+            print(f"⚠️  Error reading {update_file}: {e}")
+            continue
+    
+    if not update_files:
+        raise HTTPException(status_code=404, detail=f"No federated updates found for job {job_id}")
+    
+    return {
+        "job_id": job_id,
+        "update_files": update_files,
+        "total_files": len(update_files),
+        "message": "Use /federated/download/{filename} to download individual files"
+    }
+
+@app.get("/federated/download/{filename}")
+async def download_federated_update(filename: str):
+    """Download a federated update file"""
+    from fastapi.responses import FileResponse
+    
+    project_root = Path(__file__).parent.parent
+    federated_updates_dir = project_root / "federated_updates"
+    file_path = federated_updates_dir / filename
+    
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    # Security: ensure filename doesn't contain path traversal
+    if ".." in filename or "/" in filename or "\\" in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    
+    return FileResponse(
+        path=str(file_path),
+        filename=filename,
+        media_type="application/json"
+    )
+
 @app.get("/devices/{device_id}/model-weights/{round_id}")
 async def get_model_weights(device_id: str, round_id: str):
     """Get model weights from a device"""
@@ -1183,14 +1251,18 @@ async def aggregate_models(job_id: str, db: Session = Depends(get_db)):
                     continue
         
         # Try to match assignments with update files
+        # Process one file at a time to avoid memory issues
         for assignment in completed_assignments:
             update_file = federated_updates_dir / f"{assignment.id}_{assignment.device_id}.json"
             update_data = None
             
             if update_file.exists():
                 try:
+                    # Load file and immediately process to free memory
                     with open(update_file, 'r') as f:
                         update_data = json.load(f)
+                    # Free the file handle immediately
+                    del f
                 except Exception as e:
                     print(f"⚠️  Error reading {update_file}: {e}")
                     continue
@@ -1206,9 +1278,11 @@ async def aggregate_models(job_id: str, db: Session = Depends(get_db)):
             
             if update_data and "model_weights" in update_data:
                 try:
-                    # Convert list back to numpy arrays
+                    # Convert list back to numpy arrays - process immediately
                     model_weights = {}
-                    for key, value in update_data["model_weights"].items():
+                    raw_weights = update_data["model_weights"]  # Keep reference
+                    
+                    for key, value in raw_weights.items():
                         if isinstance(value, list):
                             # Check if it's a nested list (multi-dimensional array)
                             if len(value) > 0 and isinstance(value[0], list):
@@ -1233,6 +1307,10 @@ async def aggregate_models(job_id: str, db: Session = Depends(get_db)):
                         else:
                             model_weights[key] = np.array(value, dtype=np.float32)
                     
+                    # Free the raw JSON data immediately
+                    del raw_weights
+                    del update_data["model_weights"]
+                    
                     device_updates.append({
                         "device_id": assignment.device_id,
                         "model_weights": model_weights,
@@ -1240,10 +1318,17 @@ async def aggregate_models(job_id: str, db: Session = Depends(get_db)):
                         "loss": update_data.get("loss", 0.0),
                         "accuracy": update_data.get("accuracy", 0.0)
                     })
+                    
+                    # Free update_data
+                    del update_data
+                    
                     print(f"✅ Loaded update from device {assignment.device_id}")
                 except Exception as e:
                     print(f"❌ Error processing model weights for {assignment.device_id}: {e}")
                     traceback.print_exc()
+                    # Free memory on error
+                    if 'update_data' in locals():
+                        del update_data
                     continue
         
         if not device_updates:
