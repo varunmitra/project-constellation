@@ -128,13 +128,34 @@ class PythonTrainingExecutor {
             let data = handle.availableData
             if data.count > 0 {
                 errorBuffer.append(data)
-                if let errorOutput = String(data: data, encoding: .utf8) {
-                    print("⚠️ Training error output: \(errorOutput.trimmingCharacters(in: .whitespacesAndNewlines))")
+                if let logOutput = String(data: data, encoding: .utf8) {
+                    let trimmedOutput = logOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+                    // Parse log level and display appropriately
+                    // Python logging format: "INFO:module:message" or "WARNING:module:message" or "ERROR:module:message"
+                    if trimmedOutput.contains("ERROR:") || trimmedOutput.contains("CRITICAL:") {
+                        print("❌ Training error: \(trimmedOutput)")
+                    } else if trimmedOutput.contains("WARNING:") || trimmedOutput.contains("WARN:") {
+                        print("⚠️ Training warning: \(trimmedOutput)")
+                    } else if trimmedOutput.contains("INFO:") {
+                        // INFO logs are normal - use neutral emoji
+                        print("ℹ️ Training: \(trimmedOutput)")
+                    } else if trimmedOutput.contains("DEBUG:") {
+                        // DEBUG logs - can be verbose, use subtle emoji
+                        print("🔍 Training debug: \(trimmedOutput)")
+                    } else {
+                        // Unknown format - treat as info level
+                        print("ℹ️ Training: \(trimmedOutput)")
+                    }
                 }
             } else {
                 // End of file
                 if let fullError = String(data: errorBuffer, encoding: .utf8), !fullError.isEmpty {
-                    print("⚠️ Full training error output:\n\(fullError)")
+                    // Check if there are actual errors vs just logs
+                    if fullError.contains("ERROR:") || fullError.contains("CRITICAL:") || fullError.contains("Traceback") {
+                        print("❌ Full training error output:\n\(fullError)")
+                    } else {
+                        print("ℹ️ Full training log output:\n\(fullError)")
+                    }
                 }
             }
         }
@@ -151,7 +172,12 @@ class PythonTrainingExecutor {
             print("📊 Complete training output:\n\(finalOutput)")
         }
         if let finalError = String(data: errorBuffer, encoding: .utf8), !finalError.isEmpty {
-            print("⚠️ Complete training errors:\n\(finalError)")
+            // Check if there are actual errors vs just logs
+            if finalError.contains("ERROR:") || finalError.contains("CRITICAL:") || finalError.contains("Traceback") {
+                print("❌ Complete training errors:\n\(finalError)")
+            } else {
+                print("ℹ️ Complete training logs:\n\(finalError)")
+            }
         }
         try? FileManager.default.removeItem(atPath: tempConfigPath)
         
