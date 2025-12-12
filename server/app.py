@@ -181,8 +181,6 @@ class ConnectionManager:
         self.active_connections: List[WebSocket] = []
     
     async def connect(self, websocket: WebSocket):
-        # Note: Connection acceptance is now handled in the endpoint for origin validation
-        # This method is kept for backward compatibility but may not be used
         await websocket.accept()
         self.active_connections.append(websocket)
         print(f"✅ WebSocket client connected. Total connections: {len(self.active_connections)}")
@@ -222,60 +220,62 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "timestamp": datetime.utcnow()}
+    return {
+        "status": "healthy", 
+        "timestamp": datetime.utcnow(),
+        "websocket_support": True,
+        "websocket_endpoint": "/ws"
+    }
 
 # WebSocket endpoint for real-time updates
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """
-    WebSocket endpoint for real-time updates.
-    Note: CORS middleware doesn't apply to WebSocket connections, so we manually check origins.
-    """
-    # Get origin from headers
-    origin = websocket.headers.get("origin") or websocket.headers.get("Origin")
-    
-    # Validate origin if ALLOWED_ORIGINS is set (not "*")
-    if allowed_origins != ["*"]:
-        if origin:
-            # Check if origin matches any allowed origin
-            origin_match = False
-            for allowed_origin in allowed_origins:
-                if origin == allowed_origin or origin.startswith(allowed_origin.rstrip("/")):
-                    origin_match = True
-                    break
-            
-            if not origin_match:
-                print(f"❌ WebSocket connection rejected: origin '{origin}' not in allowed origins")
-                await websocket.close(code=1008, reason="Origin not allowed")
-                return
-        else:
-            # In production, require origin header
-            env = os.environ.get("ENVIRONMENT", "development")
-            if env == "production":
-                print(f"❌ WebSocket connection rejected: missing origin header")
-                await websocket.close(code=1008, reason="Origin required")
-                return
-    
-    # Accept connection
-    try:
-        await websocket.accept()
-        manager.active_connections.append(websocket)
-        print(f"✅ WebSocket client connected from origin: {origin}. Total connections: {len(manager.active_connections)}")
-    except Exception as e:
-        print(f"❌ Error accepting WebSocket connection: {e}")
-        return
+    # Accept connection - FastAPI handles CORS for WebSocket automatically
+    origin = websocket.headers.get("origin", "unknown")
+    print(f"🔌 WebSocket connection attempt from origin: {origin}")
     
     try:
+        await manager.connect(websocket)
+        print(f"✅ WebSocket client connected successfully")
+        
+        # Send initial connection confirmation
+        await manager.send_personal_message({
+            "type": "connected",
+            "message": "WebSocket connection established"
+        }, websocket)
+        
+        # Keep connection alive with ping-pong and handle messages
+        import asyncio
         while True:
-            # Keep connection alive and handle any incoming messages
-            data = await websocket.receive_text()
-            # Echo back or handle client messages if needed
-            await manager.send_personal_message({"type": "pong", "message": "Connection active"}, websocket)
+            try:
+                # Wait for messages with timeout to allow ping/pong
+                data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+                try:
+                    # Try to parse as JSON
+                    message = json.loads(data)
+                    if message.get("type") == "pong":
+                        # Client responded to ping, connection is alive
+                        continue
+                except:
+                    # Not JSON, treat as plain text
+                    pass
+                # Echo back or handle client messages if needed
+                await manager.send_personal_message({"type": "pong", "message": "Connection active"}, websocket)
+            except asyncio.TimeoutError:
+                # Send ping to keep connection alive (Render may timeout idle connections)
+                try:
+                    await websocket.send_json({"type": "ping", "timestamp": datetime.utcnow().isoformat()})
+                except Exception as ping_error:
+                    # Connection might be closed
+                    print(f"⚠️ Ping failed, connection may be closed: {ping_error}")
+                    break
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
         print(f"🔌 WebSocket client disconnected normally")
+        manager.disconnect(websocket)
     except Exception as e:
         print(f"❌ WebSocket error: {e}")
+        import traceback
+        traceback.print_exc()
         manager.disconnect(websocket)
 
 # Device Management

@@ -150,19 +150,69 @@ export function AppProvider({ children }) {
   const maxReconnectAttempts = 5;
   const reconnectDelay = 3000; // 3 seconds
 
+  // Check if server is awake before connecting WebSocket (for Render cold starts)
+  const checkServerHealth = async () => {
+    try {
+      const response = await apiClient.get('/health');
+      return response.data?.status === 'healthy';
+    } catch (error) {
+      console.warn('⚠️ Server health check failed:', error.message);
+      return false;
+    }
+  };
+
   // WebSocket connection management
-  const connectWebSocket = () => {
+  const connectWebSocket = async () => {
+    // Don't create multiple connections
+    if (wsRef.current && (wsRef.current.readyState === WebSocket.CONNECTING || wsRef.current.readyState === WebSocket.OPEN)) {
+      console.log('🔌 WebSocket already connecting/connected, skipping...');
+      return;
+    }
+
+    // Check server health first (important for Render cold starts)
+    const isHealthy = await checkServerHealth();
+    if (!isHealthy) {
+      console.warn('⚠️ Server not ready, will retry WebSocket connection...');
+      // Retry after a delay
+      setTimeout(() => connectWebSocket(), 2000);
+      return;
+    }
+
     try {
       // Use backend server URL for WebSocket (not React dev server)
       const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-      const wsProtocol = apiUrl.startsWith('https') ? 'wss:' : 'ws:';
-      const wsHost = apiUrl.replace(/^https?:\/\//, '').split('/')[0];
+      
+      // Handle Render deployment URLs properly
+      let wsProtocol, wsHost;
+      if (apiUrl.startsWith('https://')) {
+        wsProtocol = 'wss:';
+        wsHost = apiUrl.replace(/^https:\/\//, '').split('/')[0];
+      } else if (apiUrl.startsWith('http://')) {
+        wsProtocol = 'ws:';
+        wsHost = apiUrl.replace(/^http:\/\//, '').split('/')[0];
+      } else {
+        // Fallback: assume https if no protocol
+        wsProtocol = 'wss:';
+        wsHost = apiUrl.split('/')[0];
+      }
+      
       const wsUrl = `${wsProtocol}//${wsHost}/ws`;
       
       console.log('🔌 Connecting to WebSocket:', wsUrl);
+      console.log('🔍 API URL:', apiUrl);
+      
       const ws = new WebSocket(wsUrl);
       
+      // Set connection timeout
+      const connectionTimeout = setTimeout(() => {
+        if (ws.readyState !== WebSocket.OPEN) {
+          console.warn('⏱️ WebSocket connection timeout');
+          ws.close();
+        }
+      }, 10000); // 10 second timeout
+      
       ws.onopen = () => {
+        clearTimeout(connectionTimeout);
         console.log('✅ WebSocket connected');
         reconnectAttempts.current = 0;
         dispatch({ type: ActionTypes.SET_ERROR, payload: null });
@@ -171,6 +221,13 @@ export function AppProvider({ children }) {
       ws.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data);
+          
+          // Handle ping/pong for keep-alive
+          if (message.type === 'ping') {
+            ws.send(JSON.stringify({ type: 'pong' }));
+            return;
+          }
+          
           handleWebSocketMessage(message);
         } catch (error) {
           console.error('Error parsing WebSocket message:', error);
@@ -178,21 +235,29 @@ export function AppProvider({ children }) {
       };
       
       ws.onerror = (error) => {
+        clearTimeout(connectionTimeout);
         console.error('❌ WebSocket error:', error);
+        // Don't dispatch error immediately - let onclose handle reconnection
       };
       
-      ws.onclose = () => {
-        console.log('🔌 WebSocket disconnected');
+      ws.onclose = (event) => {
+        clearTimeout(connectionTimeout);
+        console.log('🔌 WebSocket disconnected', {
+          code: event.code,
+          reason: event.reason,
+          wasClean: event.wasClean
+        });
         wsRef.current = null;
         
-        // Attempt to reconnect
-        if (reconnectAttempts.current < maxReconnectAttempts) {
+        // Only reconnect if it wasn't a clean close or intentional disconnect
+        if (event.code !== 1000 && reconnectAttempts.current < maxReconnectAttempts) {
           reconnectAttempts.current += 1;
-          console.log(`🔄 Reconnecting... (attempt ${reconnectAttempts.current}/${maxReconnectAttempts})`);
+          const delay = reconnectDelay * Math.pow(2, reconnectAttempts.current - 1); // Exponential backoff
+          console.log(`🔄 Reconnecting... (attempt ${reconnectAttempts.current}/${maxReconnectAttempts}) in ${delay}ms`);
           reconnectTimeoutRef.current = setTimeout(() => {
             connectWebSocket();
-          }, reconnectDelay);
-        } else {
+          }, delay);
+        } else if (reconnectAttempts.current >= maxReconnectAttempts) {
           console.error('❌ Max reconnection attempts reached. Falling back to polling.');
           dispatch({ type: ActionTypes.SET_ERROR, payload: 'WebSocket connection failed. Using polling mode.' });
         }
@@ -376,8 +441,10 @@ export function AppProvider({ children }) {
     
     initialLoad();
     
-    // Connect WebSocket for real-time updates
-    connectWebSocket();
+    // Connect WebSocket for real-time updates (with delay to ensure server is ready)
+    setTimeout(() => {
+      connectWebSocket();
+    }, 1000); // Small delay to ensure initial API calls complete first
 
     // Fallback polling (slower rate since WebSocket handles real-time updates)
     // Only used if WebSocket fails or for initial data sync

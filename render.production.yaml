@@ -21,7 +21,7 @@ services:
       - key: ENVIRONMENT
         value: production
       - key: ALLOWED_ORIGINS
-        value: https://constellation-dashboard.onrender.com,https://yourdomain.com
+        value: https://constellation-dashboard.onrender.com,https://project-constellation.onrender.com
       # Add your authentication token for production
       # - key: AUTH_TOKEN
       #   generateValue: true
