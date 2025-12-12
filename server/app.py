@@ -626,6 +626,113 @@ async def complete_training_job(job_id: str, db: Session = Depends(get_db)):
     
     return {"status": "job completed", "job_id": job_id}
 
+@app.delete("/jobs/{job_id}")
+async def delete_training_job(job_id: str, db: Session = Depends(get_db)):
+    """Delete a training job and all its device assignments"""
+    job = db.query(TrainingJob).filter(TrainingJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Training job not found")
+    
+    # Delete all device training assignments for this job
+    assignments = db.query(DeviceTraining).filter(DeviceTraining.job_id == job_id).all()
+    assignment_count = len(assignments)
+    for assignment in assignments:
+        db.delete(assignment)
+    
+    # Delete the job
+    job_name = job.name
+    db.delete(job)
+    db.commit()
+    
+    print(f"🗑️ Deleted job '{job_name}' (ID: {job_id}) and {assignment_count} assignments")
+    
+    return {
+        "status": "job deleted",
+        "job_id": job_id,
+        "job_name": job_name,
+        "assignments_deleted": assignment_count
+    }
+
+@app.post("/jobs/{job_id}/reset")
+async def reset_training_job(job_id: str, db: Session = Depends(get_db)):
+    """Reset a training job back to pending status and clear assignments"""
+    job = db.query(TrainingJob).filter(TrainingJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Training job not found")
+    
+    # Delete all device training assignments for this job
+    assignments = db.query(DeviceTraining).filter(DeviceTraining.job_id == job_id).all()
+    assignment_count = len(assignments)
+    for assignment in assignments:
+        db.delete(assignment)
+    
+    # Reset job to pending status
+    job.status = "pending"
+    job.started_at = None
+    job.completed_at = None
+    job.current_epoch = 0
+    job.progress = 0.0
+    
+    db.commit()
+    
+    print(f"🔄 Reset job '{job.name}' (ID: {job_id}) to pending status, deleted {assignment_count} assignments")
+    
+    return {
+        "status": "job reset",
+        "job_id": job_id,
+        "job_name": job.name,
+        "assignments_deleted": assignment_count
+    }
+
+@app.post("/jobs/cleanup")
+async def cleanup_old_jobs(
+    days_old: int = 30,
+    status_filter: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Cleanup old training jobs
+    
+    Args:
+        days_old: Delete jobs older than this many days (default: 30)
+        status_filter: Only cleanup jobs with this status (e.g., 'completed', 'failed'). 
+                      If None, cleans up all old jobs regardless of status.
+    """
+    cutoff_date = datetime.utcnow() - timedelta(days=days_old)
+    
+    # Build query
+    query = db.query(TrainingJob).filter(TrainingJob.created_at < cutoff_date)
+    
+    if status_filter:
+        query = query.filter(TrainingJob.status == status_filter)
+    
+    old_jobs = query.all()
+    
+    deleted_count = 0
+    assignment_count = 0
+    
+    for job in old_jobs:
+        # Delete all device training assignments for this job
+        assignments = db.query(DeviceTraining).filter(DeviceTraining.job_id == job.id).all()
+        assignment_count += len(assignments)
+        for assignment in assignments:
+            db.delete(assignment)
+        
+        # Delete the job
+        db.delete(job)
+        deleted_count += 1
+    
+    db.commit()
+    
+    print(f"🧹 Cleaned up {deleted_count} old jobs (older than {days_old} days) and {assignment_count} assignments")
+    
+    return {
+        "status": "cleanup completed",
+        "jobs_deleted": deleted_count,
+        "assignments_deleted": assignment_count,
+        "days_old": days_old,
+        "status_filter": status_filter
+    }
+
 @app.post("/jobs/fix-completed")
 async def fix_completed_jobs(db: Session = Depends(get_db)):
     """Fix jobs that are at 100% but still show as running"""
@@ -652,6 +759,7 @@ async def get_next_training_job(device_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Device not found")
     
     if not device.is_active:
+        print(f"⚠️ Device {device.name} ({device_id}) is not active")
         return {"job": None, "message": "Device is not active"}
     
     # Find available training jobs (pending or running, exclude completed jobs)
@@ -662,6 +770,8 @@ async def get_next_training_job(device_id: str, db: Session = Depends(get_db)):
     # Filter out jobs that are at 100% progress (should be completed)
     available_jobs = [job for job in available_jobs if job.progress < 100.0]
     
+    print(f"🔍 Device {device.name} ({device_id}) checking for jobs: found {len(available_jobs)} available jobs")
+    
     if not available_jobs:
         return {"job": None, "message": "No available training jobs"}
     
@@ -671,8 +781,11 @@ async def get_next_training_job(device_id: str, db: Session = Depends(get_db)):
         DeviceTraining.status.in_(["assigned", "running"])
     ).count()
     
+    print(f"🔍 Device {device.name} has {active_assignments} active assignments")
+    
     max_concurrent_jobs = 2  # Limit concurrent jobs per device
     if active_assignments >= max_concurrent_jobs:
+        print(f"⚠️ Device {device.name} is at max concurrent jobs ({active_assignments}/{max_concurrent_jobs})")
         return {"job": None, "message": "Device is already at maximum concurrent jobs"}
     
     # Score and rank jobs for this device
@@ -721,8 +834,24 @@ async def get_next_training_job(device_id: str, db: Session = Depends(get_db)):
         device_training = db.query(DeviceTraining).filter(
             DeviceTraining.id == existing_assignment_id
         ).first()
+        if device_training:
+            best_job.config = json.loads(best_job.config)
+            print(f"✅ Returning existing assignment for job '{best_job.name}' to device '{device.name}' (assignment_id: {device_training.id})")
+            return {"job": best_job, "assignment_id": device_training.id}
+        else:
+            print(f"⚠️ Assignment {existing_assignment_id} not found, creating new assignment")
+    
+    # Check if assignment already exists (avoid duplicates from race conditions)
+    existing_assignment = db.query(DeviceTraining).filter(
+        DeviceTraining.device_id == device_id,
+        DeviceTraining.job_id == best_job.id,
+        DeviceTraining.status.in_(["assigned", "running"])
+    ).first()
+    
+    if existing_assignment:
         best_job.config = json.loads(best_job.config)
-        return {"job": best_job, "assignment_id": device_training.id}
+        print(f"✅ Returning existing assignment for job '{best_job.name}' to device '{device.name}' (assignment_id: {existing_assignment.id})")
+        return {"job": best_job, "assignment_id": existing_assignment.id}
     
     # Create new device training assignment
     device_training = DeviceTraining(
@@ -739,7 +868,7 @@ async def get_next_training_job(device_id: str, db: Session = Depends(get_db)):
     
     db.commit()
     
-    print(f"✅ Assigned job '{best_job.name}' to device '{device.name}' (score: {best_score:.1f})")
+    print(f"✅ Assigned job '{best_job.name}' to device '{device.name}' (score: {best_score:.1f}, assignment_id: {device_training.id})")
     
     best_job.config = json.loads(best_job.config)
     return {"job": best_job, "assignment_id": device_training.id}

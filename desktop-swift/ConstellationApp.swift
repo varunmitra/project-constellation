@@ -582,12 +582,27 @@ class NetworkManager: ObservableObject {
         let (data, response) = try await session.data(for: request)
         
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            print("⚠️ getNextJob: HTTP \(statusCode)")
             return (nil, nil)
         }
         
         // Parse JSON response
-        guard let jsonObject = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let jobDict = jsonObject["job"] as? [String: Any] else {
+        guard let jsonObject = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            print("⚠️ getNextJob: Failed to parse JSON response")
+            return (nil, nil)
+        }
+        
+        // Check if job is null/None
+        if jsonObject["job"] == nil || jsonObject["job"] is NSNull {
+            let message = jsonObject["message"] as? String ?? "No job available"
+            print("ℹ️ getNextJob: \(message)")
+            return (nil, nil)
+        }
+        
+        // Get job dictionary
+        guard let jobDict = jsonObject["job"] as? [String: Any] else {
+            print("⚠️ getNextJob: Job is not a dictionary")
             return (nil, nil)
         }
         
@@ -597,6 +612,8 @@ class NetworkManager: ObservableObject {
         // Decode job using JSONSerialization
         let jobJson = try JSONSerialization.data(withJSONObject: jobDict)
         let job = try JSONDecoder().decode(TrainingJob.self, from: jobJson)
+        
+        print("✅ getNextJob: Received job '\(job.name)' (ID: \(job.id), assignment: \(assignmentId ?? "none"))")
         
         return (job, assignmentId)
     }
