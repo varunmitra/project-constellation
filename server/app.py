@@ -1086,10 +1086,16 @@ async def receive_federated_update(device_id: str, update_data: dict, db: Sessio
     # For now, we'll store metadata and the server will aggregate when ready
     # Use absolute path to ensure directory is created in project root
     import os
-    project_root = Path(__file__).parent.parent  # Go up from server/ to project root
-    federated_updates_dir = project_root / "federated_updates"
-    federated_updates_dir.mkdir(exist_ok=True)
-    print(f"📁 Federated updates directory: {federated_updates_dir.absolute()}")
+    # Check if running on Render (persistent disk mounted at /app/federated_updates)
+    if os.path.exists("/app/federated_updates"):
+        federated_updates_dir = Path("/app/federated_updates")
+        print(f"📁 Using Render persistent disk: {federated_updates_dir}")
+    else:
+        # Local development - use project root
+        project_root = Path(__file__).parent.parent
+        federated_updates_dir = project_root / "federated_updates"
+        federated_updates_dir.mkdir(exist_ok=True)
+        print(f"📁 Using local directory: {federated_updates_dir.absolute()}")
     
     # Save update to file (in production, use database or object storage)
     update_file = federated_updates_dir / f"{assignment_id}_{device_id}.json"
@@ -1131,8 +1137,13 @@ async def get_federated_update(device_id: str, round_id: str):
 @app.get("/federated/updates/{job_id}")
 async def get_federated_updates_for_job(job_id: str, db: Session = Depends(get_db)):
     """Get list of federated update files for a job (for local aggregation)"""
-    project_root = Path(__file__).parent.parent
-    federated_updates_dir = project_root / "federated_updates"
+    import os
+    # Check if running on Render (persistent disk)
+    if os.path.exists("/app/federated_updates"):
+        federated_updates_dir = Path("/app/federated_updates")
+    else:
+        project_root = Path(__file__).parent.parent
+        federated_updates_dir = project_root / "federated_updates"
     
     if not federated_updates_dir.exists():
         raise HTTPException(status_code=404, detail="Federated updates directory not found")
@@ -1171,9 +1182,15 @@ async def get_federated_updates_for_job(job_id: str, db: Session = Depends(get_d
 async def download_federated_update(filename: str):
     """Download a federated update file"""
     from fastapi.responses import FileResponse
+    import os
     
-    project_root = Path(__file__).parent.parent
-    federated_updates_dir = project_root / "federated_updates"
+    # Check if running on Render (persistent disk)
+    if os.path.exists("/app/federated_updates"):
+        federated_updates_dir = Path("/app/federated_updates")
+    else:
+        project_root = Path(__file__).parent.parent
+        federated_updates_dir = project_root / "federated_updates"
+    
     file_path = federated_updates_dir / filename
     
     if not file_path.exists():
@@ -1232,9 +1249,14 @@ async def aggregate_models(job_id: str, db: Session = Depends(get_db)):
         
         # Load model updates from files
         import os
-        project_root = Path(__file__).parent.parent  # Go up from server/ to project root
-        federated_updates_dir = project_root / "federated_updates"
-        federated_updates_dir.mkdir(exist_ok=True)
+        # Check if running on Render (persistent disk)
+        if os.path.exists("/app/federated_updates"):
+            federated_updates_dir = Path("/app/federated_updates")
+        else:
+            project_root = Path(__file__).parent.parent
+            federated_updates_dir = project_root / "federated_updates"
+            federated_updates_dir.mkdir(exist_ok=True)
+        
         device_updates = []
         
         # Also try to find updates by job_id in the JSON files (fallback)
