@@ -23,6 +23,16 @@ mkdir -p "Constellation.app/Contents/Resources"
 # Copy executable
 cp build/Constellation "Constellation.app/Contents/MacOS/Constellation"
 
+# Bundle training scripts for distribution
+echo "📦 Bundling training scripts..."
+if [ -d "../training" ]; then
+    mkdir -p "Constellation.app/Contents/Resources/training"
+    cp -r ../training/* "Constellation.app/Contents/Resources/training/" 2>/dev/null || true
+    echo "✅ Training scripts bundled in app"
+else
+    echo "⚠️  Training scripts not found, app will look for them externally"
+fi
+
 # Create Info.plist
 cat > "Constellation.app/Contents/Info.plist" << 'EOF'
 <?xml version="1.0" encoding="UTF-8"?>

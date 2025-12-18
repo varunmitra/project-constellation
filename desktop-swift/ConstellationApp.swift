@@ -256,6 +256,15 @@ class PythonTrainingExecutor {
     private func getProjectRoot() -> String {
         let fileManager = FileManager.default
         
+        // Strategy 0: Check if training scripts are bundled in app (for distribution)
+        if let appBundle = Bundle.main.resourcePath {
+            let bundledTrainingScript = "\(appBundle)/training/run_job.py"
+            if fileManager.fileExists(atPath: bundledTrainingScript) {
+                print("✅ Found project root (bundled in app): \(appBundle)")
+                return appBundle
+            }
+        }
+        
         // Strategy 1: Check if we're running from desktop-swift directory
         let currentPath = fileManager.currentDirectoryPath
         
@@ -425,10 +434,26 @@ class ServerURLManager {
     
     var serverURL: String {
         get {
-            return userDefaults.string(forKey: serverURLKey) ?? "http://localhost:8000"
+            // Always default to Render server
+            let defaultURL = "https://project-constellation.onrender.com"
+            if let savedURL = userDefaults.string(forKey: serverURLKey) {
+                // Only use saved URL if it's not localhost
+                if savedURL.contains("localhost") || savedURL.contains("127.0.0.1") {
+                    print("⚠️  Ignoring localhost setting, using Render default")
+                    return defaultURL
+                }
+                return savedURL
+            }
+            return defaultURL
         }
         set {
-            userDefaults.set(newValue, forKey: serverURLKey)
+            // Don't save localhost URLs
+            if newValue.contains("localhost") || newValue.contains("127.0.0.1") {
+                print("⚠️  Cannot set server URL to localhost, using Render default")
+                userDefaults.removeObject(forKey: serverURLKey)
+            } else {
+                userDefaults.set(newValue, forKey: serverURLKey)
+            }
         }
     }
     
@@ -1321,6 +1346,8 @@ class MenuBarApp: NSObject {
         setupMenuBar()
         print("🚀 DEBUG: Calling startStatusUpdates()")
         startStatusUpdates()
+        print("📡 Server URL: \(networkManager.baseURL)")
+        print("🌐 Dashboard: https://constellation-dashboard.onrender.com")
         print("🚀 DEBUG: MenuBarApp initialization complete")
     }
     
@@ -1359,7 +1386,8 @@ class MenuBarApp: NSObject {
         let menu = NSMenu()
         
         // Server Configuration
-        let serverItem = NSMenuItem(title: "Server: \(networkManager.baseURL)", action: #selector(configureServer), keyEquivalent: "")
+        let serverURLDisplay = networkManager.baseURL.replacingOccurrences(of: "https://", with: "").replacingOccurrences(of: "http://", with: "")
+        let serverItem = NSMenuItem(title: "Server: \(serverURLDisplay)", action: #selector(configureServer), keyEquivalent: "")
         serverItem.target = self
         serverItem.isEnabled = true
         serverItem.toolTip = "Click to change server URL"
@@ -1562,8 +1590,7 @@ print("🧠 Project Constellation - Enhanced Distributed AI Training")
 print(String(repeating: "=", count: 60))
 print("🚀 DEBUG: Starting application...")
 print("🚀 DEBUG: Creating MenuBarApp instance...")
-print("📡 Server: Configurable via menu")
-print("🌐 Dashboard: http://localhost:3000")
+print("🌐 Dashboard: https://constellation-dashboard.onrender.com")
 print("🛑 Press Ctrl+C to quit")
 print("")
 

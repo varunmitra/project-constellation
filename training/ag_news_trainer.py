@@ -18,19 +18,30 @@ from sklearn.metrics import accuracy_score, classification_report
 import requests
 from typing import Dict, List, Tuple
 import logging
+import hashlib
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+def deterministic_hash(word: str, vocab_size: int) -> int:
+    """
+    Deterministic hash function for consistent tokenization
+    Uses MD5 hash to ensure same word always gets same token ID
+    """
+    hash_obj = hashlib.md5(word.encode('utf-8'))
+    hash_int = int(hash_obj.hexdigest(), 16)
+    return hash_int % vocab_size
+
 class AGNewsDataset(Dataset):
     """AG News Dataset for text classification"""
     
-    def __init__(self, texts, labels, tokenizer, max_length=128):
+    def __init__(self, texts, labels, tokenizer, max_length=128, vocab_size=10000):
         self.texts = texts
         self.labels = labels
         self.tokenizer = tokenizer
         self.max_length = max_length
+        self.vocab_size = vocab_size
     
     def __len__(self):
         return len(self.texts)
@@ -40,10 +51,10 @@ class AGNewsDataset(Dataset):
         label = self.labels[idx]
         
         # Simple tokenization (split by spaces)
-        tokens = text.split()[:self.max_length]
+        tokens = text.lower().split()[:self.max_length]
         
-        # Convert to tensor
-        token_ids = [hash(token) % 10000 for token in tokens]  # Simple hashing
+        # Convert to tensor using deterministic hashing
+        token_ids = [deterministic_hash(token, self.vocab_size) for token in tokens]
         token_ids = token_ids + [0] * (self.max_length - len(token_ids))  # Padding
         
         return torch.tensor(token_ids, dtype=torch.long), torch.tensor(label, dtype=torch.long)

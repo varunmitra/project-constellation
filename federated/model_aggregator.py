@@ -68,7 +68,8 @@ class ModelAggregator:
         # Get layer names from first update
         first_update = device_updates[0]
         for layer_name in first_update["model_weights"].keys():
-            aggregated_weights[layer_name] = np.zeros_like(first_update["model_weights"][layer_name])
+            # Use float64 for aggregation to avoid dtype issues
+            aggregated_weights[layer_name] = np.zeros_like(first_update["model_weights"][layer_name], dtype=np.float64)
         
         # Weighted average of model weights
         for update in device_updates:
@@ -77,7 +78,9 @@ class ModelAggregator:
             
             for layer_name, weights in model_weights.items():
                 if layer_name in aggregated_weights:
-                    aggregated_weights[layer_name] += weight_factor * weights
+                    # Convert weights to float64 if needed
+                    weights_float = weights.astype(np.float64) if weights.dtype != np.float64 else weights
+                    aggregated_weights[layer_name] += weight_factor * weights_float
         
         # Log aggregation details
         logger.info(f"📊 Total samples: {total_samples}")

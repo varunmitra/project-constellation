@@ -18,17 +18,28 @@ from torch.utils.data import Dataset, DataLoader
 import pandas as pd
 import requests
 from pathlib import Path
+import hashlib
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+def deterministic_hash(word: str, vocab_size: int) -> int:
+    """
+    Deterministic hash function for consistent tokenization
+    Uses MD5 hash to ensure same word always gets same token ID
+    """
+    hash_obj = hashlib.md5(word.encode('utf-8'))
+    hash_int = int(hash_obj.hexdigest(), 16)
+    return hash_int % vocab_size
+
 class FederatedDataset(Dataset):
     """Dataset for federated learning"""
     
-    def __init__(self, data_path: str, max_length: int = 128):
+    def __init__(self, data_path: str, max_length: int = 128, vocab_size: int = 10000):
         self.data_path = data_path
         self.max_length = max_length
+        self.vocab_size = vocab_size
         self.texts, self.labels = self._load_data()
     
     def _load_data(self):
@@ -53,9 +64,9 @@ class FederatedDataset(Dataset):
         text = str(self.texts[idx])
         label = self.labels[idx]
         
-        # Simple tokenization
-        tokens = text.split()[:self.max_length]
-        token_ids = [hash(token) % 10000 for token in tokens]
+        # Simple tokenization with deterministic hashing
+        tokens = text.lower().split()[:self.max_length]
+        token_ids = [deterministic_hash(token, self.vocab_size) for token in tokens]
         token_ids = token_ids + [0] * (self.max_length - len(token_ids))
         
         return torch.tensor(token_ids, dtype=torch.long), torch.tensor(label, dtype=torch.long)
@@ -116,7 +127,11 @@ class FederatedLearningClient:
         )
         
         # Load local data
-        dataset = FederatedDataset(data_path, job_config.get("max_length", 128))
+        dataset = FederatedDataset(
+            data_path, 
+            max_length=job_config.get("max_length", 128),
+            vocab_size=job_config.get("vocab_size", 10000)
+        )
         dataloader = DataLoader(
             dataset, 
             batch_size=job_config.get("batch_size", 32), 

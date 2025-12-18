@@ -21,6 +21,7 @@ swiftc -o build/Constellation \
     -import-objc-header /dev/null \
     -framework AppKit \
     -framework Foundation \
+    -framework UserNotifications \
     ConstellationApp.swift
 
 if [ $? -eq 0 ]; then
