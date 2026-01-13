@@ -17,8 +17,13 @@ import json
 import os
 from pathlib import Path
 
-# Database setup - supports both SQLite (dev) and PostgreSQL (production)
-DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./constellation.db")
+# Database setup - supports SQLite (dev/in-memory), PostgreSQL (production), or no database
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+# If no DATABASE_URL is set, use in-memory SQLite (no persistent storage)
+if not DATABASE_URL:
+    DATABASE_URL = "sqlite:///:memory:"
+    print("⚠️  No DATABASE_URL set - using in-memory SQLite (data will be lost on restart)")
 
 # Handle PostgreSQL connection string format (Render uses postgres://, SQLAlchemy needs postgresql://)
 if DATABASE_URL.startswith("postgres://"):
@@ -26,7 +31,10 @@ if DATABASE_URL.startswith("postgres://"):
 
 # Create engine with appropriate connection args
 if DATABASE_URL.startswith("sqlite"):
-    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+    if DATABASE_URL == "sqlite:///:memory:":
+        engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+    else:
+        engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 else:
     # PostgreSQL connection
     engine = create_engine(DATABASE_URL, pool_pre_ping=True)
@@ -157,6 +165,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Helper function to get federated updates directory (uses temp storage if no persistent disk)
+def get_federated_updates_dir():
+    """Get the directory for federated updates - uses temp storage if no persistent disk available"""
+    import os
+    import tempfile
+    
+    # Check if running on Render with persistent disk mounted
+    if os.path.exists("/app/federated_updates"):
+        return Path("/app/federated_updates")
+    else:
+        # Use temporary directory (cleared on restart) - no persistent storage required
+        temp_dir = tempfile.gettempdir()
+        federated_updates_dir = Path(temp_dir) / "constellation_federated_updates"
+        federated_updates_dir.mkdir(exist_ok=True)
+        return federated_updates_dir
 
 # Dependency to get DB session
 def get_db():
@@ -993,7 +1017,10 @@ async def complete_training(
 # Model Management
 @app.get("/models/{model_name}/download")
 async def download_model(model_name: str):
-    model_path = Path(f"models/{model_name}.pth")
+    import tempfile
+    temp_dir = Path(tempfile.gettempdir())
+    models_dir = temp_dir / "constellation_models"
+    model_path = models_dir / f"{model_name}.pth"
     if not model_path.exists():
         raise HTTPException(status_code=404, detail="Model not found")
     
@@ -1018,8 +1045,10 @@ async def list_models(db: Session = Depends(get_db)):
             "source": "database"
         })
     
-    # Get models from filesystem (legacy support)
-    models_dir = Path("models")
+    # Get models from filesystem (legacy support) - using temp storage
+    import tempfile
+    temp_dir = Path(tempfile.gettempdir())
+    models_dir = temp_dir / "constellation_models"
     if models_dir.exists():
         for model_file in models_dir.glob("*.pth"):
             models.append({
@@ -1082,20 +1111,9 @@ async def receive_federated_update(device_id: str, update_data: dict, db: Sessio
     if not device_training:
         raise HTTPException(status_code=404, detail="Training assignment not found")
     
-    # Store model weights in a temporary storage (in production, use proper storage)
-    # For now, we'll store metadata and the server will aggregate when ready
-    # Use absolute path to ensure directory is created in project root
-    import os
-    # Check if running on Render (persistent disk mounted at /app/federated_updates)
-    if os.path.exists("/app/federated_updates"):
-        federated_updates_dir = Path("/app/federated_updates")
-        print(f"📁 Using Render persistent disk: {federated_updates_dir}")
-    else:
-        # Local development - use project root
-        project_root = Path(__file__).parent.parent
-        federated_updates_dir = project_root / "federated_updates"
-        federated_updates_dir.mkdir(exist_ok=True)
-        print(f"📁 Using local directory: {federated_updates_dir.absolute()}")
+    # Store model weights in temporary storage (no persistent disk required)
+    federated_updates_dir = get_federated_updates_dir()
+    print(f"📁 Using federated updates directory: {federated_updates_dir}")
     
     # Save update to file (in production, use database or object storage)
     update_file = federated_updates_dir / f"{assignment_id}_{device_id}.json"
@@ -1137,13 +1155,7 @@ async def get_federated_update(device_id: str, round_id: str):
 @app.get("/federated/updates/{job_id}")
 async def get_federated_updates_for_job(job_id: str, db: Session = Depends(get_db)):
     """Get list of federated update files for a job (for local aggregation)"""
-    import os
-    # Check if running on Render (persistent disk)
-    if os.path.exists("/app/federated_updates"):
-        federated_updates_dir = Path("/app/federated_updates")
-    else:
-        project_root = Path(__file__).parent.parent
-        federated_updates_dir = project_root / "federated_updates"
+    federated_updates_dir = get_federated_updates_dir()
     
     if not federated_updates_dir.exists():
         raise HTTPException(status_code=404, detail="Federated updates directory not found")
@@ -1182,14 +1194,7 @@ async def get_federated_updates_for_job(job_id: str, db: Session = Depends(get_d
 async def download_federated_update(filename: str):
     """Download a federated update file"""
     from fastapi.responses import FileResponse
-    import os
-    
-    # Check if running on Render (persistent disk)
-    if os.path.exists("/app/federated_updates"):
-        federated_updates_dir = Path("/app/federated_updates")
-    else:
-        project_root = Path(__file__).parent.parent
-        federated_updates_dir = project_root / "federated_updates"
+    federated_updates_dir = get_federated_updates_dir()
     
     file_path = federated_updates_dir / filename
     
@@ -1248,14 +1253,7 @@ async def aggregate_models(job_id: str, db: Session = Depends(get_db)):
         print(f"🔄 Aggregating models from {len(completed_assignments)} devices for job {job_id}")
         
         # Load model updates from files
-        import os
-        # Check if running on Render (persistent disk)
-        if os.path.exists("/app/federated_updates"):
-            federated_updates_dir = Path("/app/federated_updates")
-        else:
-            project_root = Path(__file__).parent.parent
-            federated_updates_dir = project_root / "federated_updates"
-            federated_updates_dir.mkdir(exist_ok=True)
+        federated_updates_dir = get_federated_updates_dir()
         
         device_updates = []
         
@@ -1472,7 +1470,10 @@ async def aggregate_models(job_id: str, db: Session = Depends(get_db)):
         # Save aggregated model
         import os
         project_root = Path(__file__).parent.parent  # Go up from server/ to project root
-        models_dir = project_root / "federated_models"
+        # Use temporary storage for aggregated models (no persistent disk required)
+        import tempfile
+        temp_dir = Path(tempfile.gettempdir())
+        models_dir = temp_dir / "constellation_federated_models"
         models_dir.mkdir(exist_ok=True)
         model_path = models_dir / f"aggregated_model_{job_id}.pth"
         
